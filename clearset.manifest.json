@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "clearset",
+  "version": "1.0.0",
+  "description": "Deterministic Context Resets, SQLite Blackboard State & Token-Budgeted Retrieval for AI Coding Agents.",
+  "homepage": "https://github.com/Core310/clearset",
+  "database_schemas": {
+    "cs_codebase.db": {
+      "tables": [
+        {
+          "name": "symbols",
+          "columns": {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "file_path": "TEXT",
+            "symbol_name": "TEXT",
+            "symbol_kind": "TEXT",
+            "start_line": "INTEGER",
+            "end_line": "INTEGER",
+            "signature": "TEXT",
+            "docstring": "TEXT",
+            "language": "TEXT",
+            "updated_at": "TEXT"
+          },
+          "indexes": ["idx_symbols_name", "idx_symbols_file"]
+        },
+        {
+          "name": "relationships",
+          "columns": {
+            "source_id": "TEXT",
+            "target_id": "TEXT",
+            "relation_type": "TEXT",
+            "details": "TEXT"
+          },
+          "indexes": ["idx_rel_src", "idx_rel_tgt"]
+        },
+        {
+          "name": "file_hashes",
+          "columns": {
+            "file_path": "TEXT PRIMARY KEY",
+            "blob_hash": "TEXT",
+            "language": "TEXT",
+            "indexed_at": "TEXT"
+          }
+        },
+        {
+          "name": "domain_tags",
+          "columns": {
+            "tag_name": "TEXT",
+            "target_id": "TEXT",
+            "target_type": "TEXT",
+            "category": "TEXT",
+            "notes": "TEXT"
+          }
+        },
+        {
+          "name": "meta",
+          "columns": {
+            "key": "TEXT PRIMARY KEY",
+            "value": "TEXT"
+          }
+        }
+      ]
+    },
+    "cs_turns.db": {
+      "tables": [
+        {
+          "name": "sessions",
+          "columns": {
+            "session_id": "TEXT PRIMARY KEY",
+            "started_at": "TEXT",
+            "ended_at": "TEXT",
+            "goal": "TEXT",
+            "status": "TEXT",
+            "summary": "TEXT"
+          }
+        },
+        {
+          "name": "turn_actions",
+          "columns": {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "session_id": "TEXT",
+            "timestamp": "TEXT",
+            "milestone": "TEXT",
+            "phase": "TEXT",
+            "task": "TEXT",
+            "action_type": "TEXT",
+            "description": "TEXT",
+            "status": "TEXT",
+            "files_touched": "TEXT",
+            "summary": "TEXT"
+          }
+        },
+        {
+          "name": "learnings_concerns",
+          "columns": {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "session_id": "TEXT",
+            "timestamp": "TEXT",
+            "kind": "TEXT",
+            "category": "TEXT",
+            "title": "TEXT",
+            "details": "TEXT",
+            "is_resolved": "INTEGER DEFAULT 0",
+            "resolution_notes": "TEXT",
+            "related_files": "TEXT"
+          }
+        },
+        {
+          "name": "checkpoints",
+          "columns": {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "timestamp": "TEXT",
+            "milestone": "TEXT",
+            "phase": "TEXT",
+            "task": "TEXT",
+            "next_todo": "TEXT",
+            "git_commit": "TEXT",
+            "active_concerns_count": "INTEGER"
+          }
+        },
+        {
+          "name": "swarm_runs",
+          "columns": {
+            "run_id": "TEXT PRIMARY KEY",
+            "session_id": "TEXT",
+            "created_at": "TEXT",
+            "milestone": "TEXT",
+            "phase": "TEXT",
+            "topology": "TEXT",
+            "status": "TEXT",
+            "total_tasks": "INTEGER DEFAULT 0",
+            "completed_tasks": "INTEGER DEFAULT 0",
+            "failed_tasks": "INTEGER DEFAULT 0",
+            "metadata_json": "TEXT"
+          }
+        },
+        {
+          "name": "swarm_tasks",
+          "columns": {
+            "task_id": "TEXT PRIMARY KEY",
+            "run_id": "TEXT",
+            "title": "TEXT",
+            "role": "TEXT",
+            "target_files": "TEXT",
+            "target_symbols": "TEXT",
+            "verification_cmd": "TEXT",
+            "status": "TEXT",
+            "claimed_by": "TEXT",
+            "claimed_at": "TEXT",
+            "completed_at": "TEXT",
+            "exit_code": "INTEGER",
+            "summary": "TEXT",
+            "traceback_log": "TEXT"
+          }
+        },
+        {
+          "name": "swarm_messages",
+          "columns": {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "run_id": "TEXT",
+            "from_task": "TEXT",
+            "to_task": "TEXT",
+            "message_type": "TEXT",
+            "payload": "TEXT",
+            "created_at": "TEXT"
+          }
+        }
+      ]
+    }
+  },
+  "cli_tools": {
+    "cs": {
+      "path": "~/.local/bin/cs",
+      "commands": {
+        "init": "Initialize SQLite databases, scan codebase, and generate YAML guides",
+        "map": "Scan codebase into SQLite and generate YAML guides (--incremental supported)",
+        "query": "Query symbols, tags, FTS, or SQL relationships (--json supported)",
+        "log-action": "Log an action into cs_turns.db (--json supported)",
+        "log-learning": "Log learning, issue, concern, or decision (--json supported)",
+        "checkpoint": "Create RESUME HERE.md and checkpoint entry in DB (--json supported)",
+        "resume": "Restore active execution context from RESUME HERE.md and SQLite (--json supported)",
+        "swarm-dispatch": "Dispatch multi-agent swarm run and enqueue tasks",
+        "swarm-claim": "Claim next available pending task from swarm ledger",
+        "swarm-report": "Report verification result and status for claimed task",
+        "swarm-post-msg": "Post typed contract / message to swarm bus",
+        "swarm-status": "Display progress and task status of swarm runs"
+      }
+    },
+    "cs-fetch": {
+      "path": "~/.local/bin/cs-fetch",
+      "commands": {
+        "symbol": "Fetch exact symbol signature, line range, and docstring (--json supported)",
+        "outline": "Fetch symbol outline of a file without reading full code (--json supported)",
+        "context": "Fetch token-budgeted RAG context packet for a query (--json supported)",
+        "callers": "Fetch call graph (inbound callers & dependencies) (--json supported)",
+        "turns": "Fetch recent turn actions and open concerns (--json supported)",
+        "slice": "Fetch specific line range from file with line numbers (--json supported)",
+        "swarm-packet": "Fetch minimal context packet for claimed swarm task (--json supported)"
+      }
+    },
+    "cs-sync": {
+      "path": "~/.local/bin/cs-sync",
+      "description": "Deterministic AST auto-sync scanning incremental git diffs in milliseconds (--json supported)"
+    },
+    "cs-gate": {
+      "path": "~/.local/bin/cs-gate",
+      "description": "Deterministic test gate runner capturing exit codes and logging audit entries to cs_turns.db (--json supported)"
+    },
+    "cs-cleanup": {
+      "path": "~/.local/bin/cs-cleanup",
+      "description": "Grug-principled dead AST symbol detector, bloat checker, and ruff styler"
+    },
+    "cs-mcp": {
+      "path": "~/.local/bin/cs-mcp",
+      "description": "Standard Model Context Protocol (MCP) JSON-RPC stdio server"
+    }
+  }
+}

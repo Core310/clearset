@@ -55,10 +55,13 @@ git clone https://github.com/Core310/clearset.git ~/.local/share/clearset
 ~/.local/share/clearset/install.sh
 ```
 
-This installs three CLI binaries into `~/.local/bin/`:
+This installs six CLI binaries into `~/.local/bin/`:
 * `cs` — Core lifecycle engine (init, map, query, plan, swarm, checkpoint, resume)
 * `cs-fetch` — High-speed, token-efficient code & symbol retriever
+* `cs-sync` — Deterministic git-diff auto-sync engine
+* `cs-gate` — Deterministic test runner & SQLite turn audit gate
 * `cs-cleanup` — Grug-principled dead symbol, bloat, and cache cleaner
+* `cs-mcp` — Standard Model Context Protocol (MCP) JSON-RPC stdio server
 
 *(Also creates backward-compatible `cta`, `cta-fetch`, and `cta-cleanup` symlinks).*
 
@@ -68,16 +71,16 @@ In any repository root:
 ```bash
 cs init
 ```
-This extracts all AST symbols into `.cs/cs_codebase.db`, indexes functions and classes, and generates `cs_codebase_index.yml`.
+This extracts all AST symbols into `.cs/cs_codebase.db`, indexes functions and classes, and generates `cs_codebase_index.yml`. Add `--json` for machine-readable JSON output.
 
 ### 3. Retrieve Code (Zero Token Waste)
 Instead of feeding entire files to an LLM:
 
 ```bash
-# Get exact signature and line range
+# Get exact signature and line range (or append --json for structured dicts)
 cs-fetch symbol authenticate_user
 
-# Get a compact 10-line outline of any file
+# Get a compact outline of any file
 cs-fetch outline src/auth/service.py
 
 # Read only lines 45-60
@@ -87,7 +90,16 @@ cs-fetch slice src/auth/service.py 45 60
 cs-fetch context "jwt validation"
 ```
 
-### 4. Checkpoint & Clear Context
+### 4. Deterministic Sync & Test Gates
+```bash
+# Sync AST and database automatically with git diffs
+cs-sync --json
+
+# Run test gates and automatically log pass/fail to cs_turns.db
+cs-gate --milestone "M001" --phase "01" --task "1.1" -- "pytest tests/"
+```
+
+### 5. Checkpoint & Clear Context
 Before running `/clear`:
 
 ```bash
@@ -103,13 +115,42 @@ The agent immediately restores the active milestone, phase, task, open concerns,
 
 ---
 
+## 🐍 Python SDK & Model Context Protocol (MCP)
+
+### Native Python API
+ClearSet can be directly imported in scripts or custom agents without shell overhead:
+
+```python
+import clearset as cs
+
+# Fast token-budgeted fetch
+symbols = cs.fetch_symbol_data(workspace, "my_func")
+outline = cs.fetch_outline_data(workspace, "src/app.py")
+
+# Deterministic sync & test gate
+sync_stats = cs.sync_codebase_state(workspace)
+gate_res = cs.run_verification_gate(workspace, "pytest tests/", milestone="M001")
+```
+
+### Model Context Protocol (MCP) Server
+Launch the standard JSON-RPC stdio MCP server for Cursor, Claude Desktop, or Windsurf:
+
+```bash
+cs-mcp
+```
+ClearSet exposes 7 tools via MCP (`cs_fetch_symbol`, `cs_fetch_outline`, `cs_fetch_context`, `cs_fetch_callers`, `cs_fetch_turns`, `cs_sync`, `cs_gate`). See [`clearset.manifest.json`](clearset.manifest.json) for the full JSON Schema.
+
+---
+
 ## 🧠 The ClearSet Skill Suite
 
-ClearSet ships with 9 specialized agent skills ready for Antigravity, Gemini CLI, Claude Code, and Hermes Agent:
+ClearSet ships with 11 specialized agent skills ready for Antigravity, Gemini CLI, Claude Code, and Hermes Agent:
 
 | Skill | Role | Key Command |
 | :--- | :--- | :--- |
-| **`cs-init`** | Workspace & database initializer | `cs init` |
+| **`cs-init`** | Workspace & database initializer | `cs init --json` |
+| **`cs-sync`** | Deterministic git-diff AST auto-synchronizer | `cs-sync --json` |
+| **`cs-gate`** | Deterministic verification test gate | `cs-gate "pytest tests/"` |
 | **`cs-mapper`** | Incremental AST symbol extraction & relationship grapher | `cs map --incremental` |
 | **`cs-query`** | Token-budgeted SQLite RAG & call-graph retriever | `cs-fetch symbol`, `outline`, `slice` |
 | **`cs-planner`** | Spec-driven hierarchy engine (Milestones $\rightarrow$ Phases $\rightarrow$ Tasks) | `cs log-learning --kind decision` |

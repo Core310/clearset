@@ -58,12 +58,16 @@ install_cs() {
   CS_ENGINE="${REPO_ROOT}/bin/cs_engine.py"
   CS_FETCH="${REPO_ROOT}/bin/cs_fetch.py"
   CS_CLEANUP="${REPO_ROOT}/bin/cs_cleanup.py"
+  CS_SYNC="${REPO_ROOT}/bin/cs_sync.py"
+  CS_GATE="${REPO_ROOT}/bin/cs_gate.py"
+  CS_MCP="${REPO_ROOT}/bin/cs_mcp.py"
 
-  chmod +x "${CS_ENGINE}" "${CS_FETCH}" "${CS_CLEANUP}"
+  chmod +x "${CS_ENGINE}" "${CS_FETCH}" "${CS_CLEANUP}" "${CS_SYNC}" "${CS_GATE}" "${CS_MCP}"
 
   # 1. Create executable wrapper for cs in ~/.local/bin
   cat <<WRAPPER > "${BIN_DIR}/cs"
 #!/usr/bin/env bash
+export PYTHONPATH="${REPO_ROOT}:\${PYTHONPATH:-}"
 exec python3 "${CS_ENGINE}" "\$@"
 WRAPPER
   chmod +x "${BIN_DIR}/cs"
@@ -71,6 +75,7 @@ WRAPPER
   # 2. Create executable wrapper for cs-fetch in ~/.local/bin
   cat <<WRAPPER > "${BIN_DIR}/cs-fetch"
 #!/usr/bin/env bash
+export PYTHONPATH="${REPO_ROOT}:\${PYTHONPATH:-}"
 exec python3 "${CS_FETCH}" "\$@"
 WRAPPER
   chmod +x "${BIN_DIR}/cs-fetch"
@@ -78,19 +83,47 @@ WRAPPER
   # 3. Create executable wrapper for cs-cleanup in ~/.local/bin
   cat <<WRAPPER > "${BIN_DIR}/cs-cleanup"
 #!/usr/bin/env bash
+export PYTHONPATH="${REPO_ROOT}:\${PYTHONPATH:-}"
 exec python3 "${CS_CLEANUP}" "\$@"
 WRAPPER
   chmod +x "${BIN_DIR}/cs-cleanup"
 
-  # 4. Backward-compatible aliases for legacy cta commands
+  # 4. Create executable wrapper for cs-sync in ~/.local/bin
+  cat <<WRAPPER > "${BIN_DIR}/cs-sync"
+#!/usr/bin/env bash
+export PYTHONPATH="${REPO_ROOT}:\${PYTHONPATH:-}"
+exec python3 "${CS_SYNC}" "\$@"
+WRAPPER
+  chmod +x "${BIN_DIR}/cs-sync"
+
+  # 5. Create executable wrapper for cs-gate in ~/.local/bin
+  cat <<WRAPPER > "${BIN_DIR}/cs-gate"
+#!/usr/bin/env bash
+export PYTHONPATH="${REPO_ROOT}:\${PYTHONPATH:-}"
+exec python3 "${CS_GATE}" "\$@"
+WRAPPER
+  chmod +x "${BIN_DIR}/cs-gate"
+
+  # 6. Create executable wrapper for cs-mcp in ~/.local/bin
+  cat <<WRAPPER > "${BIN_DIR}/cs-mcp"
+#!/usr/bin/env bash
+export PYTHONPATH="${REPO_ROOT}:\${PYTHONPATH:-}"
+exec python3 "${CS_MCP}" "\$@"
+WRAPPER
+  chmod +x "${BIN_DIR}/cs-mcp"
+
+  # 7. Backward-compatible aliases for legacy cta commands
   ln -sf "${BIN_DIR}/cs" "${BIN_DIR}/cta"
   ln -sf "${BIN_DIR}/cs-fetch" "${BIN_DIR}/cta-fetch"
   ln -sf "${BIN_DIR}/cs-cleanup" "${BIN_DIR}/cta-cleanup"
 
   echo "Installed CLI binaries into ${BIN_DIR}:"
-  echo "  - cs         (primary engine)"
+  echo "  - cs         (primary state engine)"
   echo "  - cs-fetch   (token-efficient retrieval)"
+  echo "  - cs-sync    (deterministic git-diff auto-sync)"
+  echo "  - cs-gate    (deterministic test runner & audit gate)"
   echo "  - cs-cleanup (grug-principled codebase hygiene)"
+  echo "  - cs-mcp     (standard Model Context Protocol server)"
   echo "  - cta, cta-fetch, cta-cleanup (backward-compatible symlinks)"
 
   # 5. Link skills safely

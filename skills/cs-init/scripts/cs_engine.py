@@ -100,6 +100,14 @@ IGNORED_EXTENSIONS = {
 # -----------------------------------------------------------------------------
 
 
+def find_workspace(start_dir: Path) -> Path:
+    current = start_dir.resolve()
+    for parent in [current] + list(current.parents):
+        if (parent / CS_DIR_NAME).exists() or (parent / LEGACY_CS_DIR_NAME).exists():
+            return parent
+    return current
+
+
 def get_cs_dir(workspace: Path) -> Path:
     if (workspace / LEGACY_CS_DIR_NAME).exists() and not (workspace / CS_DIR_NAME).exists():
         return workspace / LEGACY_CS_DIR_NAME
@@ -1662,6 +1670,7 @@ def main():
     p_init = subparsers.add_parser(
         "init", help="Initialize ClearSet SQLite databases, YAML indexes, and folders"
     )
+    p_init.add_argument("--json", action="store_true", help="Output result as JSON")
 
     p_map = subparsers.add_parser(
         "map", help="Scan codebase into SQLite and generate YAML guides"
@@ -1672,6 +1681,7 @@ def main():
         action="store_true",
         help="Perform incremental scan based on git hash diffs",
     )
+    p_map.add_argument("--json", action="store_true", help="Output stats as JSON")
 
     p_query = subparsers.add_parser(
         "query", help="Query codebase symbols, tags, FTS, or relationships"
@@ -1701,6 +1711,7 @@ def main():
     p_log.add_argument("--status", default="SUCCESS", help="Action status")
     p_log.add_argument("--files", nargs="*", default=[], help="Files touched")
     p_log.add_argument("--summary", default="", help="Output summary")
+    p_log.add_argument("--json", action="store_true", help="Output result as JSON")
 
     p_learn = subparsers.add_parser(
         "log-learning", help="Log learning, issue, concern, or decision"
@@ -1716,6 +1727,7 @@ def main():
     p_learn.add_argument("--title", required=True, help="Short title")
     p_learn.add_argument("--details", required=True, help="Detailed description")
     p_learn.add_argument("--files", nargs="*", default=[], help="Related files")
+    p_learn.add_argument("--json", action="store_true", help="Output result as JSON")
 
     p_chk = subparsers.add_parser(
         "checkpoint", help="Create RESUME HERE.md and checkpoint entry in DB"
@@ -1724,6 +1736,7 @@ def main():
     p_chk.add_argument("--phase", default="Phase 1", help="Current phase")
     p_chk.add_argument("--task", default="Task 1", help="Current task")
     p_chk.add_argument("--next", required=True, help="Exact next todo item")
+    p_chk.add_argument("--json", action="store_true", help="Output result as JSON")
 
     p_res = subparsers.add_parser(
         "resume", help="Bootstrap context from RESUME HERE.md and SQLite"
@@ -1810,16 +1823,22 @@ def main():
         init_turns_db(get_turns_db_path(workspace))
         init_codebase_db(get_codebase_db_path(workspace))
         stats = map_codebase(workspace, incremental=False)
-        print(f"ClearSet (cs) initialized successfully in {workspace}")
-        print(
-            f"Indexed {stats['indexed']} files into SQLite and generated {CODEBASE_INDEX_YML}"
-        )
+        if getattr(args, "json", False):
+            print(json.dumps({"status": "ok", "workspace": str(workspace), "stats": stats}, indent=2))
+        else:
+            print(f"ClearSet (cs) initialized successfully in {workspace}")
+            print(
+                f"Indexed {stats['indexed']} files into SQLite and generated {CODEBASE_INDEX_YML}"
+            )
 
     elif args.command == "map":
         stats = map_codebase(workspace, incremental=args.incremental)
-        print(
-            f"Codebase mapped: {stats['indexed']} indexed, {stats['skipped']} unchanged, {stats['deleted']} pruned."
-        )
+        if getattr(args, "json", False):
+            print(json.dumps({"status": "ok", "stats": stats}, indent=2))
+        else:
+            print(
+                f"Codebase mapped: {stats['indexed']} indexed, {stats['skipped']} unchanged, {stats['deleted']} pruned."
+            )
 
     elif args.command == "query":
         res = query_codebase(
@@ -1856,7 +1875,10 @@ def main():
             args.files,
             args.summary,
         )
-        print(f"Action logged with ID: {aid}")
+        if getattr(args, "json", False):
+            print(json.dumps({"status": "ok", "action_id": aid}, indent=2))
+        else:
+            print(f"Action logged with ID: {aid}")
 
     elif args.command == "log-learning":
         lid = log_learning_or_concern(
@@ -1868,13 +1890,26 @@ def main():
             args.details,
             args.files,
         )
-        print(f"{args.kind.capitalize()} recorded with ID: {lid}")
+        if getattr(args, "json", False):
+            print(json.dumps({"status": "ok", "learning_id": lid, "kind": args.kind}, indent=2))
+        else:
+            print(f"{args.kind.capitalize()} recorded with ID: {lid}")
 
     elif args.command == "checkpoint":
         path = create_checkpoint(
             workspace, args.milestone, args.phase, args.task, args.next
         )
-        print(f"Checkpoint created successfully at {path}")
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "status": "ok",
+                "checkpoint_file": str(path),
+                "milestone": args.milestone,
+                "phase": args.phase,
+                "task": args.task,
+                "next": args.next
+            }, indent=2))
+        else:
+            print(f"Checkpoint created successfully at {path}")
 
     elif args.command == "resume":
         data = load_resume_state(workspace)
