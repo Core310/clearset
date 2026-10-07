@@ -1816,6 +1816,54 @@ def main():
     p_s_status.add_argument("--run-id", help="Filter by run ID (defaults to latest)")
     p_s_status.add_argument("--json", action="store_true", help="Output as JSON")
 
+    p_audit = subparsers.add_parser(
+        "audit", help="Deterministic anti-AI defense gate & stylometric auditor"
+    )
+    p_audit.add_argument(
+        "target", help="File path or raw text string to audit (.ipynb, .pdf, .md, .tex, .txt)"
+    )
+    p_audit.add_argument(
+        "--verify", action="store_true", help="Quiet verify mode: exit code 0 if passed, 1 if blocked"
+    )
+    p_audit.add_argument(
+        "--no-db", action="store_true", help="Do not write audit row to cs_turns.db"
+    )
+    p_audit.add_argument(
+        "--json", action="store_true", help="Output machine-readable JSON"
+    )
+
+    p_stagger = subparsers.add_parser(
+        "stagger", help="Human work commit staggerer & proof-of-work timeline engine"
+    )
+    p_stagger.add_argument("--repo", default=".", help="Target Git repository path")
+    p_stagger.add_argument(
+        "--assignment-name", "-a", default="Assignment", help="Assignment name"
+    )
+    p_stagger.add_argument(
+        "--files", nargs="+", default=["."], help="Files/directories to stage in the commits"
+    )
+    p_stagger.add_argument(
+        "--days", type=int, default=3, help="Number of work days to span (default: 3)"
+    )
+    p_stagger.add_argument(
+        "--start-hour", type=int, default=11, help="Work start hour (0-23, default: 11)"
+    )
+    p_stagger.add_argument(
+        "--end-hour", type=int, default=23, help="Work end hour (0-23, default: 23)"
+    )
+    p_stagger.add_argument(
+        "--apply", action="store_true", help="Execute the commits in git"
+    )
+    p_stagger.add_argument(
+        "--push", action="store_true", help="Push commits to origin main after applying"
+    )
+    p_stagger.add_argument(
+        "--no-db", action="store_true", help="Do not log action to cs_turns.db"
+    )
+    p_stagger.add_argument(
+        "--json", action="store_true", help="Output machine-readable JSON"
+    )
+
     args = parser.parse_args()
     workspace = Path(args.workspace).resolve()
 
@@ -2014,6 +2062,60 @@ def main():
                     print(
                         f"  #{m['id']} [{m['message_type']}] from {m['from_task']} -> {m['to_task']}: {m['payload'][:80]}"
                     )
+
+    elif args.command == "audit":
+        from clearset.audit import audit_document
+
+        res = audit_document(args.target, record_to_db=not args.no_db)
+        if args.json:
+            print(json.dumps(res, indent=2))
+            sys.exit(0 if res["passed"] else 1)
+        if args.verify:
+            if res["passed"]:
+                print(
+                    f"✓ [AI DEFENSE GATE]: PASSED (AI: {res['ai_probability']*100:.1f}%, 🟢 Green: {res['bucket_counts']['GREEN']}, 🔴 Red: {res['bucket_counts']['RED']})"
+                )
+                sys.exit(0)
+            else:
+                print(
+                    f"✗ [AI DEFENSE GATE]: BLOCKED (AI: {res['ai_probability']*100:.1f}%, Red Buckets: {res['bucket_counts']['RED']})"
+                )
+                sys.exit(1)
+        print("==================================================================")
+        print(f"  AI DEFENSE GATE AUDIT REPORT: {res['verdict']}")
+        print("==================================================================")
+        print(f"AI Risk Probability:    {res['ai_probability']*100:.1f}%")
+        print(f"Human Probability:      {res['human_probability']*100:.1f}%")
+        print(f"Passed:                 {res['passed']}")
+        print(f"Bucket Counts:          {res['bucket_counts']}")
+        print("==================================================================")
+        sys.exit(0 if res["passed"] else 1)
+
+    elif args.command == "stagger":
+        from clearset.stagger import stagger_assignment
+
+        repo_dir = Path(args.repo).resolve()
+        res = stagger_assignment(
+            repo_path=str(repo_dir),
+            assignment_name=args.assignment_name,
+            files=args.files,
+            days_span=args.days,
+            start_hour=args.start_hour,
+            end_hour=args.end_hour,
+            apply=args.apply,
+            push=args.push,
+            record_to_db=not args.no_db,
+        )
+        if args.json:
+            print(json.dumps(res, indent=2))
+        else:
+            print(f"Commit stagger plan for '{res['assignment_name']}': {len(res['plan'])} steps")
+            for idx, step in enumerate(res["plan"], 1):
+                print(f" [{idx}] {step['formatted_time']}: \"{step['message']}\"")
+            if res["applied"]:
+                print(f"✅ Created {res['commits_created']} commits successfully (pushed: {res['pushed']}).")
+            else:
+                print("💡 Dry-run complete. Run with --apply to commit.")
     else:
         parser.print_help()
 

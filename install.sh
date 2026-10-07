@@ -61,8 +61,10 @@ install_cs() {
   CS_SYNC="${REPO_ROOT}/bin/cs_sync.py"
   CS_GATE="${REPO_ROOT}/bin/cs_gate.py"
   CS_MCP="${REPO_ROOT}/bin/cs_mcp.py"
+  CS_AUDIT="${REPO_ROOT}/bin/cs_audit.py"
+  CS_STAGGER="${REPO_ROOT}/bin/cs_stagger.py"
 
-  chmod +x "${CS_ENGINE}" "${CS_FETCH}" "${CS_CLEANUP}" "${CS_SYNC}" "${CS_GATE}" "${CS_MCP}"
+  chmod +x "${CS_ENGINE}" "${CS_FETCH}" "${CS_CLEANUP}" "${CS_SYNC}" "${CS_GATE}" "${CS_MCP}" "${CS_AUDIT}" "${CS_STAGGER}"
 
   # 1. Create executable wrapper for cs in ~/.local/bin
   cat <<WRAPPER > "${BIN_DIR}/cs"
@@ -112,10 +114,29 @@ exec python3 "${CS_MCP}" "\$@"
 WRAPPER
   chmod +x "${BIN_DIR}/cs-mcp"
 
-  # 7. Backward-compatible aliases for legacy cta commands
+  # 7. Create executable wrapper for cs-audit in ~/.local/bin
+  cat <<WRAPPER > "${BIN_DIR}/cs-audit"
+#!/usr/bin/env bash
+export PYTHONPATH="${REPO_ROOT}:\${PYTHONPATH:-}"
+exec python3 "${CS_AUDIT}" "\$@"
+WRAPPER
+  chmod +x "${BIN_DIR}/cs-audit"
+
+  # 8. Create executable wrapper for cs-stagger in ~/.local/bin
+  cat <<WRAPPER > "${BIN_DIR}/cs-stagger"
+#!/usr/bin/env bash
+export PYTHONPATH="${REPO_ROOT}:\${PYTHONPATH:-}"
+exec python3 "${CS_STAGGER}" "\$@"
+WRAPPER
+  chmod +x "${BIN_DIR}/cs-stagger"
+
+  # 9. Backward-compatible aliases for legacy cta commands
   ln -sf "${BIN_DIR}/cs" "${BIN_DIR}/cta"
   ln -sf "${BIN_DIR}/cs-fetch" "${BIN_DIR}/cta-fetch"
   ln -sf "${BIN_DIR}/cs-cleanup" "${BIN_DIR}/cta-cleanup"
+  ln -sf "${BIN_DIR}/cs-gate" "${BIN_DIR}/cta-gate"
+  ln -sf "${BIN_DIR}/cs-audit" "${BIN_DIR}/cta-audit"
+  ln -sf "${BIN_DIR}/cs-stagger" "${BIN_DIR}/cta-stagger"
 
   echo "Installed CLI binaries into ${BIN_DIR}:"
   echo "  - cs         (primary state engine)"
@@ -124,7 +145,9 @@ WRAPPER
   echo "  - cs-gate    (deterministic test runner & audit gate)"
   echo "  - cs-cleanup (grug-principled codebase hygiene)"
   echo "  - cs-mcp     (standard Model Context Protocol server)"
-  echo "  - cta, cta-fetch, cta-cleanup (backward-compatible symlinks)"
+  echo "  - cs-audit   (deterministic anti-AI defense & stylometric gate)"
+  echo "  - cs-stagger (human proof-of-work commit timeline engine)"
+  echo "  - cta, cta-fetch, cta-gate, cta-cleanup, cta-audit, cta-stagger (backward-compatible aliases)"
 
   # 5. Link skills safely
   for skill_dir in "${REPO_ROOT}/skills"/cs-*; do

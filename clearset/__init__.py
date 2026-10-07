@@ -36,9 +36,16 @@ from clearset.fetch import (
 
 from clearset.sync import sync_codebase_state
 from clearset.gate import run_verification_gate
+from clearset.audit import audit_document, evaluate_text
+from clearset.stagger import stagger_assignment, CommitStaggerEngine
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __all__ = [
+    # Audit & Stagger
+    "audit_document",
+    "evaluate_text",
+    "stagger_assignment",
+    "CommitStaggerEngine",
     # Retrieval
     "fetch_symbol_data",
     "fetch_outline_data",
