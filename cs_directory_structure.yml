@@ -1,0 +1,98 @@
+# ClearSet Codebase Directory Structure & Architectural Layout
+clearset_version: '1.0'
+last_updated: '2026-10-07T15:44:50.460954+00:00Z'
+root: '.'
+
+directories:
+  clearset:
+    layer: 'general'
+    tags: []
+    primary_files: ["clearset/mcp.py", "clearset/engine.py", "clearset/fetch.py", "clearset/audit.py", "clearset/stagger.py"]
+  clearset/egg-info:
+    layer: 'general'
+    tags: []
+    primary_files: ["clearset.egg-info/entry_points.txt", "clearset.egg-info/top_level.txt", "clearset.egg-info/SOURCES.txt", "clearset.egg-info/PKG-INFO", "clearset.egg-info/dependency_links.txt"]
+  skills/cs-cleanup:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-cleanup/SKILL.md", "skills/cs-cleanup/README.md"]
+  skills/cs-clear:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-clear/SKILL.md", "skills/cs-clear/README.md"]
+  skills/cs-clear/examples:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-clear/examples/checkpoint_and_clear_example.md"]
+  skills/cs-executor:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-executor/SKILL.md", "skills/cs-executor/README.md"]
+  skills/cs-executor/examples:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-executor/examples/task_execution_example.md"]
+  skills/cs-gate:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-gate/SKILL.md", "skills/cs-gate/README.md"]
+  skills/cs-init:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-init/SKILL.md", "skills/cs-init/README.md"]
+  skills/cs-init/examples:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-init/examples/init_walkthrough.md"]
+  skills/cs-init/scripts:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-init/scripts/cs_fetch.py", "skills/cs-init/scripts/cs_engine.py"]
+  skills/cs-mapper:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-mapper/SKILL.md", "skills/cs-mapper/README.md"]
+  skills/cs-mapper/examples:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-mapper/examples/incremental_mapping_example.md"]
+  skills/cs-planner:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-planner/SKILL.md", "skills/cs-planner/README.md"]
+  skills/cs-planner/examples:
+    layer: 'testing'
+    tags: ["testing"]
+    primary_files: ["skills/cs-planner/examples/spec_driven_planning_example.md"]
+  skills/cs-query:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-query/SKILL.md", "skills/cs-query/README.md"]
+  skills/cs-query/examples:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-query/examples/rag_query_walkthrough.md"]
+  skills/cs-resume:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-resume/SKILL.md", "skills/cs-resume/README.md"]
+  skills/cs-resume/examples:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-resume/examples/session_resume_example.md"]
+  skills/cs-swarm:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-swarm/SKILL.md", "skills/cs-swarm/README.md"]
+  skills/cs-swarm/examples:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-swarm/examples/swarm_execution_walkthrough.md"]
+  skills/cs-sync:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-sync/SKILL.md", "skills/cs-sync/README.md"]
+  tests:
+    layer: 'testing'
+    tags: ["testing"]
+    primary_files: ["tests/test_clearset.py"]

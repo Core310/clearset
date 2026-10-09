@@ -1,0 +1,21 @@
+# ClearSet Codebase Map & RAG Query Guide
+clearset_version: '1.0'
+database: '.cs/cs_codebase.db'
+last_updated: '2026-10-07T15:44:50.460463+00:00Z'
+git_commit: 'f39333aa0f565a2f305671452c18877f6e4cbd1a'
+stats:
+  total_indexed_files: 52
+  total_symbols: 135
+
+domain_tags:
+  testing:
+    category: 'layer'
+    matching_entities: 2
+    sample_targets: ["tests/test_clearset.py", "skills/cs-planner/examples/spec_driven_planning_example.md"]
+
+query_templates:
+  find_symbol: "SELECT file_path, name, kind, signature, line_start FROM symbols WHERE name LIKE '%{SYMBOL}%';"
+  find_callers: "SELECT source_id, relation_type, details FROM relationships WHERE target_id = '{SYMBOL}' AND relation_type = 'calls';"
+  find_imports: "SELECT target_id, relation_type, details FROM relationships WHERE source_id = '{FILE}' AND relation_type = 'imports';"
+  search_fts: "SELECT file_path, symbol_name, kind, signature FROM codebase_fts WHERE codebase_fts MATCH '{KEYWORD}' LIMIT 20;"
+  find_by_tag: "SELECT target_id, target_type, category FROM tags WHERE tag_name = '{TAG}';"

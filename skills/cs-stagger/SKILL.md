@@ -37,7 +37,7 @@ cs stagger --repo /home/arika/D/media/coursework/data_mining --assignment-name "
 **Output**:
 ```text
 =======================================================
- 🛠️  ORGANIC COMMIT PLAN: CS5593 Independent Project 2
+ ORGANIC COMMIT PLAN: CS5593 Independent Project 2
  Active Hours Window: 11:00 - 23:00 | Span: 3 days
  Target Repository: /home/arika/D/media/coursework/data_mining
 =======================================================
@@ -49,7 +49,7 @@ cs stagger --repo /home/arika/D/media/coursework/data_mining --assignment-name "
  [5/6] 2026-10-06 14:30:19 CDT: "Add discussion, error analysis, and edge case responses"
  [6/6] 2026-10-06 19:12:45 CDT: "Final polish: refine LaTeX notation, fix typos, and verify rubric"
 
-✅ Created 6 commits successfully.
-🚀 Pushed to origin main: SUCCESS
+Created 6 commits successfully.
+Pushed to origin main: SUCCESS
 ```
 </examples>
