@@ -23,6 +23,7 @@ cs-sync = "clearset.sync:main"
 cs-gate = "clearset.gate:main"
 cs-mcp = "clearset.mcp:main"
 cs-cleanup = "clearset.cleanup:main"
+cs-hook = "clearset.hook:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

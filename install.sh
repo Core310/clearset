@@ -61,10 +61,11 @@ install_cs() {
   CS_SYNC="${REPO_ROOT}/bin/cs_sync.py"
   CS_GATE="${REPO_ROOT}/bin/cs_gate.py"
   CS_MCP="${REPO_ROOT}/bin/cs_mcp.py"
+  CS_HOOK="${REPO_ROOT}/bin/cs_hook.py"
   CS_AUDIT="${REPO_ROOT}/bin/cs_audit.py"
   CS_STAGGER="${REPO_ROOT}/bin/cs_stagger.py"
 
-  chmod +x "${CS_ENGINE}" "${CS_FETCH}" "${CS_CLEANUP}" "${CS_SYNC}" "${CS_GATE}" "${CS_MCP}" "${CS_AUDIT}" "${CS_STAGGER}"
+  chmod +x "${CS_ENGINE}" "${CS_FETCH}" "${CS_CLEANUP}" "${CS_SYNC}" "${CS_GATE}" "${CS_MCP}" "${CS_HOOK}" "${CS_AUDIT}" "${CS_STAGGER}"
 
   # 1. Create executable wrapper for cs in ~/.local/bin
   cat <<WRAPPER > "${BIN_DIR}/cs"
@@ -114,6 +115,14 @@ exec python3 "${CS_MCP}" "\$@"
 WRAPPER
   chmod +x "${BIN_DIR}/cs-mcp"
 
+  # 7. Create executable wrapper for cs-hook in ~/.local/bin
+  cat <<WRAPPER > "${BIN_DIR}/cs-hook"
+#!/usr/bin/env bash
+export PYTHONPATH="${REPO_ROOT}:\${PYTHONPATH:-}"
+exec python3 "${CS_HOOK}" "\$@"
+WRAPPER
+  chmod +x "${BIN_DIR}/cs-hook"
+
   # 7. Create executable wrapper for cs-audit in ~/.local/bin
   cat <<WRAPPER > "${BIN_DIR}/cs-audit"
 #!/usr/bin/env bash
@@ -135,6 +144,7 @@ WRAPPER
   ln -sf "${BIN_DIR}/cs-fetch" "${BIN_DIR}/cta-fetch"
   ln -sf "${BIN_DIR}/cs-cleanup" "${BIN_DIR}/cta-cleanup"
   ln -sf "${BIN_DIR}/cs-gate" "${BIN_DIR}/cta-gate"
+  ln -sf "${BIN_DIR}/cs-hook" "${BIN_DIR}/cta-hook"
   ln -sf "${BIN_DIR}/cs-audit" "${BIN_DIR}/cta-audit"
   ln -sf "${BIN_DIR}/cs-stagger" "${BIN_DIR}/cta-stagger"
 
@@ -145,9 +155,10 @@ WRAPPER
   echo "  - cs-gate    (deterministic test runner & audit gate)"
   echo "  - cs-cleanup (grug-principled codebase hygiene)"
   echo "  - cs-mcp     (standard Model Context Protocol server)"
+  echo "  - cs-hook    (post-edit syntax linter & auto-sync hook)"
   echo "  - cs-audit   (deterministic anti-AI defense & stylometric gate)"
   echo "  - cs-stagger (human proof-of-work commit timeline engine)"
-  echo "  - cta, cta-fetch, cta-gate, cta-cleanup, cta-audit, cta-stagger (backward-compatible aliases)"
+  echo "  - cta, cta-fetch, cta-gate, cta-cleanup, cta-hook, cta-audit, cta-stagger (backward-compatible aliases)"
 
   # 5. Link skills safely
   for skill_dir in "${REPO_ROOT}/skills"/cs-*; do

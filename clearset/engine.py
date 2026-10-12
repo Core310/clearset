@@ -13,6 +13,7 @@ import os
 import re
 import sqlite3
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -221,9 +222,15 @@ def init_turns_db(db_path: Path) -> None:
         traceback_log TEXT,
         summary TEXT,
         completed_at TEXT,
+        worktree_path TEXT,
         FOREIGN KEY(run_id) REFERENCES swarm_runs(run_id) ON DELETE CASCADE
     );
     """)
+
+    try:
+        cur.execute("ALTER TABLE swarm_tasks ADD COLUMN worktree_path TEXT;")
+    except sqlite3.OperationalError:
+        pass
 
     cur.execute("""
     CREATE TABLE IF NOT EXISTS swarm_messages (
@@ -1407,6 +1414,7 @@ def swarm_claim(
     worker_id: str,
     run_id: Optional[str] = None,
     role: Optional[str] = None,
+    worktree: bool = False,
 ) -> Optional[Dict[str, Any]]:
     turns_db = get_turns_db_path(workspace)
     init_turns_db(turns_db)
@@ -1441,13 +1449,62 @@ def swarm_claim(
     task_id = task_dict["task_id"]
     ts = datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
 
+    worktree_path_str: Optional[str] = None
+    worktree_branch: Optional[str] = None
+
+    if worktree:
+        try:
+            chk = subprocess.run(
+                ["git", "rev-parse", "--is-inside-work-tree"],
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            is_git = chk.returncode == 0 and chk.stdout.strip() == "true"
+        except Exception:
+            is_git = False
+
+        if is_git:
+            cs_dir = get_cs_dir(workspace)
+            wt_base = cs_dir / "worktrees"
+            wt_base.mkdir(parents=True, exist_ok=True)
+            wt_target = wt_base / task_id
+            branch = f"swarm/{task_id}"
+
+            if wt_target.exists():
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(wt_target)],
+                    cwd=str(workspace),
+                    capture_output=True,
+                )
+                if wt_target.exists():
+                    import shutil
+                    shutil.rmtree(str(wt_target), ignore_errors=True)
+
+            subprocess.run(
+                ["git", "branch", "-D", branch],
+                cwd=str(workspace),
+                capture_output=True,
+            )
+
+            wt_res = subprocess.run(
+                ["git", "worktree", "add", "-b", branch, str(wt_target), "HEAD"],
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+            )
+            if wt_res.returncode == 0:
+                worktree_path_str = str(wt_target)
+                worktree_branch = branch
+
     cur.execute(
         """
     UPDATE swarm_tasks
-    SET status = 'CLAIMED', claimed_by = ?, claimed_at = ?, attempt_count = attempt_count + 1
+    SET status = 'CLAIMED', claimed_by = ?, claimed_at = ?, attempt_count = attempt_count + 1, worktree_path = ?
     WHERE task_id = ?
     """,
-        (worker_id, ts, task_id),
+        (worker_id, ts, worktree_path_str, task_id),
     )
 
     conn.commit()
@@ -1459,6 +1516,9 @@ def swarm_claim(
     task_dict["attempt_count"] += 1
     task_dict["target_files"] = json.loads(task_dict["target_files"] or "[]")
     task_dict["target_symbols"] = json.loads(task_dict["target_symbols"] or "[]")
+    if worktree_path_str:
+        task_dict["worktree_path"] = worktree_path_str
+        task_dict["worktree_branch"] = worktree_branch
     return task_dict
 
 
@@ -1470,6 +1530,8 @@ def swarm_report(
     summary: str = "",
     traceback: str = "",
     files: Optional[List[str]] = None,
+    merge: bool = False,
+    teardown: bool = True,
 ) -> Dict[str, Any]:
     turns_db = get_turns_db_path(workspace)
     init_turns_db(turns_db)
@@ -1479,7 +1541,7 @@ def swarm_report(
     cur = conn.cursor()
 
     cur.execute(
-        "SELECT task_id, run_id, title, role, attempt_count, max_retries FROM swarm_tasks WHERE task_id = ?",
+        "SELECT task_id, run_id, title, role, attempt_count, max_retries, worktree_path FROM swarm_tasks WHERE task_id = ?",
         (task_id,),
     )
     task_row = cur.fetchone()
@@ -1493,6 +1555,15 @@ def swarm_report(
     ts = datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
     files_list = files or []
 
+    wt_path_str: Optional[str] = None
+    try:
+        wt_path_str = task_row["worktree_path"]
+    except (IndexError, KeyError):
+        pass
+
+    branch_name = f"swarm/{task_id}"
+    merge_status = "none"
+
     cur.execute("SELECT milestone, phase FROM swarm_runs WHERE run_id = ?", (run_id,))
     run_row = cur.fetchone()
     milestone = run_row["milestone"] if run_row else "M001"
@@ -1500,10 +1571,50 @@ def swarm_report(
 
     normalized_status = status.upper()
     if normalized_status == "PASSED":
+        if wt_path_str and merge:
+            merge_res = subprocess.run(
+                [
+                    "git",
+                    "merge",
+                    "--no-ff",
+                    branch_name,
+                    "-m",
+                    f"Merge swarm task {task_id}: {task_row['title']}",
+                ],
+                cwd=str(workspace),
+                capture_output=True,
+                text=True,
+            )
+            if merge_res.returncode == 0:
+                merge_status = "merged"
+            else:
+                subprocess.run(["git", "merge", "--abort"], cwd=str(workspace), capture_output=True)
+                merge_status = f"conflict: {merge_res.stderr.strip()}"
+
+        if wt_path_str and teardown:
+            wt_dir = Path(wt_path_str)
+            if wt_dir.exists():
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(wt_dir)],
+                    cwd=str(workspace),
+                    capture_output=True,
+                )
+                if wt_dir.exists():
+                    import shutil
+                    shutil.rmtree(str(wt_dir), ignore_errors=True)
+            subprocess.run(["git", "worktree", "prune"], cwd=str(workspace), capture_output=True)
+
+            if merge_status == "merged" or not merge:
+                subprocess.run(
+                    ["git", "branch", "-D", branch_name],
+                    cwd=str(workspace),
+                    capture_output=True,
+                )
+
         cur.execute(
             """
         UPDATE swarm_tasks
-        SET status = 'PASSED', exit_code = ?, summary = ?, completed_at = ?
+        SET status = 'PASSED', exit_code = ?, summary = ?, completed_at = ?, worktree_path = NULL
         WHERE task_id = ?
         """,
             (exit_code, summary, ts, task_id),
@@ -1544,11 +1655,24 @@ def swarm_report(
 
         final_state = "PASSED"
     else:
+        if wt_path_str and teardown:
+            wt_dir = Path(wt_path_str)
+            if wt_dir.exists():
+                subprocess.run(
+                    ["git", "worktree", "remove", "--force", str(wt_dir)],
+                    cwd=str(workspace),
+                    capture_output=True,
+                )
+                if wt_dir.exists():
+                    import shutil
+                    shutil.rmtree(str(wt_dir), ignore_errors=True)
+            subprocess.run(["git", "worktree", "prune"], cwd=str(workspace), capture_output=True)
+
         if attempt_count >= max_retries:
             cur.execute(
                 """
             UPDATE swarm_tasks
-            SET status = 'FAILED', exit_code = ?, traceback_log = ?, summary = ?, completed_at = ?
+            SET status = 'FAILED', exit_code = ?, traceback_log = ?, summary = ?, completed_at = ?, worktree_path = NULL
             WHERE task_id = ?
             """,
                 (exit_code, traceback, summary, ts, task_id),
@@ -1572,7 +1696,7 @@ def swarm_report(
             cur.execute(
                 """
             UPDATE swarm_tasks
-            SET status = 'PENDING', exit_code = ?, traceback_log = ?, summary = ?
+            SET status = 'PENDING', exit_code = ?, traceback_log = ?, summary = ?, worktree_path = NULL
             WHERE task_id = ?
             """,
                 (exit_code, traceback, summary, task_id),
@@ -1581,7 +1705,12 @@ def swarm_report(
 
     conn.commit()
     conn.close()
-    return {"task_id": task_id, "run_id": run_id, "status": final_state}
+
+    result_payload: Dict[str, Any] = {"task_id": task_id, "run_id": run_id, "status": final_state}
+    if wt_path_str:
+        result_payload["worktree_teardown"] = teardown
+        result_payload["merge_status"] = merge_status
+    return result_payload
 
 
 def swarm_post_message(
@@ -1773,6 +1902,9 @@ def main():
     p_s_claim.add_argument("--run-id", help="Filter by run ID")
     p_s_claim.add_argument("--role", help="Filter by role")
     p_s_claim.add_argument(
+        "--worktree", action="store_true", help="Provision isolated Git worktree for claimed task"
+    )
+    p_s_claim.add_argument(
         "--json", action="store_true", help="Output task packet as JSON"
     )
 
@@ -1794,6 +1926,15 @@ def main():
         "--traceback", default="", help="Traceback log or error message if failed"
     )
     p_s_report.add_argument("--files", nargs="*", default=[], help="Files touched")
+    p_s_report.add_argument(
+        "--merge", action="store_true", help="Merge worktree branch into workspace on PASSED"
+    )
+    p_s_report.add_argument(
+        "--no-teardown", action="store_true", help="Retain worktree on disk instead of pruning"
+    )
+    p_s_report.add_argument(
+        "--json", action="store_true", help="Output report result as JSON"
+    )
 
     p_s_msg = subparsers.add_parser(
         "swarm-post-msg", help="Post typed message / contract update to swarm bus"
@@ -1862,6 +2003,18 @@ def main():
     )
     p_stagger.add_argument(
         "--json", action="store_true", help="Output machine-readable JSON"
+    )
+
+    p_hook = subparsers.add_parser(
+        "hook", help="Run automated lifecycle hooks (e.g. post-edit syntax & auto-sync)"
+    )
+    p_hook.add_argument("hook_type", choices=["post-edit"], help="Hook type")
+    p_hook.add_argument("file", help="Target file path")
+    p_hook.add_argument("--no-sync", action="store_true", help="Skip automatic AST sync")
+    p_hook.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
+    p_update = subparsers.add_parser(
+        "update", help="Update ClearSet to latest upstream commit"
     )
 
     args = parser.parse_args()
@@ -1995,7 +2148,13 @@ def main():
                 print(f"  - {c}")
 
     elif args.command == "swarm-claim":
-        task = swarm_claim(workspace, args.worker_id, args.run_id, args.role)
+        task = swarm_claim(
+            workspace,
+            args.worker_id,
+            args.run_id,
+            args.role,
+            worktree=args.worktree,
+        )
         if not task:
             print("No pending tasks available for claim.")
         elif args.json:
@@ -2008,6 +2167,9 @@ def main():
                 f"Target Files: {', '.join(task['target_files']) if task['target_files'] else 'None'}"
             )
             print(f"Verification: {task['verification_cmd'] or 'None specified'}")
+            if task.get("worktree_path"):
+                print(f"Worktree Path:   {task['worktree_path']}")
+                print(f"Worktree Branch: {task['worktree_branch']}")
 
     elif args.command == "swarm-report":
         res = swarm_report(
@@ -2018,8 +2180,15 @@ def main():
             args.summary,
             args.traceback,
             args.files,
+            merge=args.merge,
+            teardown=not args.no_teardown,
         )
-        print(f"Task '{res['task_id']}' reported: {res['status']}")
+        if getattr(args, "json", False):
+            print(json.dumps(res, indent=2))
+        else:
+            print(f"Task '{res['task_id']}' reported: {res['status']}")
+            if res.get("merge_status") and res["merge_status"] != "none":
+                print(f"Merge Status:    {res['merge_status']}")
 
     elif args.command == "swarm-post-msg":
         mid = swarm_post_message(
@@ -2113,9 +2282,44 @@ def main():
             for idx, step in enumerate(res["plan"], 1):
                 print(f" [{idx}] {step['formatted_time']}: \"{step['message']}\"")
             if res["applied"]:
-                print(f"✅ Created {res['commits_created']} commits successfully (pushed: {res['pushed']}).")
+                print(f"Created {res['commits_created']} commits successfully (pushed: {res['pushed']}).")
             else:
-                print("💡 Dry-run complete. Run with --apply to commit.")
+                print("Dry-run complete. Run with --apply to commit.")
+
+    elif args.command == "hook":
+        from clearset.hook import run_post_edit_hook
+
+        res = run_post_edit_hook(
+            file_path=args.file,
+            workspace=workspace,
+            auto_sync=not args.no_sync,
+        )
+        if args.json:
+            print(json.dumps(res, indent=2))
+        else:
+            if res["passed"]:
+                sync_info = f" (AST synced)" if res["synced"] else ""
+                print(f"[POST-EDIT HOOK]: {res['file']} syntax valid{sync_info}")
+            else:
+                print(f"[POST-EDIT HOOK ERROR]: {res['file']} has syntax errors:", file=sys.stderr)
+                for err in res["errors"]:
+                    line = err.get("line", 1)
+                    col = err.get("column", 1)
+                    msg = err.get("message", "Error")
+                    print(f"  Line {line}, Col {col}: {msg}", file=sys.stderr)
+                    if "text" in err and err["text"]:
+                        print(f"    {err['text']}", file=sys.stderr)
+        sys.exit(0 if res["passed"] else 1)
+
+    elif args.command == "update":
+        clearset_repo = Path(__file__).resolve().parent.parent
+        updater_script = clearset_repo / "update.sh"
+        if not updater_script.exists():
+            print(f"Error: update script not found at {updater_script}", file=sys.stderr)
+            sys.exit(1)
+        res = subprocess.run(["bash", str(updater_script)])
+        sys.exit(res.returncode)
+
     else:
         parser.print_help()
 

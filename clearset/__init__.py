@@ -36,11 +36,15 @@ from clearset.fetch import (
 
 from clearset.sync import sync_codebase_state
 from clearset.gate import run_verification_gate
+from clearset.hook import run_post_edit_hook, validate_file_syntax
 from clearset.audit import audit_document, evaluate_text
 from clearset.stagger import stagger_assignment, CommitStaggerEngine
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __all__ = [
+    # Hook
+    "run_post_edit_hook",
+    "validate_file_syntax",
     # Audit & Stagger
     "audit_document",
     "evaluate_text",

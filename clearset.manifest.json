@@ -150,7 +150,8 @@
             "completed_at": "TEXT",
             "exit_code": "INTEGER",
             "summary": "TEXT",
-            "traceback_log": "TEXT"
+            "traceback_log": "TEXT",
+            "worktree_path": "TEXT"
           }
         },
         {

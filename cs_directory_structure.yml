@@ -1,17 +1,21 @@
 # ClearSet Codebase Directory Structure & Architectural Layout
 clearset_version: '1.0'
-last_updated: '2026-10-07T15:44:50.460954+00:00Z'
+last_updated: '2026-10-12T01:15:04.124078+00:00Z'
 root: '.'
 
 directories:
   clearset:
     layer: 'general'
     tags: []
-    primary_files: ["clearset/mcp.py", "clearset/engine.py", "clearset/fetch.py", "clearset/audit.py", "clearset/stagger.py"]
+    primary_files: ["clearset/mcp.py", "clearset/fetch.py", "clearset/cleanup.py", "clearset/sync.py", "clearset/engine.py"]
   clearset/egg-info:
     layer: 'general'
     tags: []
-    primary_files: ["clearset.egg-info/entry_points.txt", "clearset.egg-info/top_level.txt", "clearset.egg-info/SOURCES.txt", "clearset.egg-info/PKG-INFO", "clearset.egg-info/dependency_links.txt"]
+    primary_files: ["clearset.egg-info/top_level.txt", "clearset.egg-info/PKG-INFO", "clearset.egg-info/dependency_links.txt", "clearset.egg-info/entry_points.txt", "clearset.egg-info/SOURCES.txt"]
+  skills/cs-audit:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-audit/SKILL.md"]
   skills/cs-cleanup:
     layer: 'general'
     tags: []
@@ -27,7 +31,7 @@ directories:
   skills/cs-executor:
     layer: 'general'
     tags: []
-    primary_files: ["skills/cs-executor/SKILL.md", "skills/cs-executor/README.md"]
+    primary_files: ["skills/cs-executor/README.md", "skills/cs-executor/SKILL.md"]
   skills/cs-executor/examples:
     layer: 'general'
     tags: []
@@ -80,6 +84,10 @@ directories:
     layer: 'general'
     tags: []
     primary_files: ["skills/cs-resume/examples/session_resume_example.md"]
+  skills/cs-stagger:
+    layer: 'general'
+    tags: []
+    primary_files: ["skills/cs-stagger/SKILL.md"]
   skills/cs-swarm:
     layer: 'general'
     tags: []

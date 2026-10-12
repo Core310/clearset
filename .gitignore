@@ -41,6 +41,7 @@ htmlcov/
 # ClearSet runtime databases (when working inside clearset itself)
 .cs/
 .cta/
+.continue-here
 
 # IDE & OS
 .DS_Store

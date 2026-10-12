@@ -159,6 +159,122 @@ class MathEngine:
         self.assertEqual(data["query"], "add")
         self.assertEqual(len(data["symbols"]), 1)
 
+    def test_post_edit_hook(self):
+        from clearset.hook import validate_file_syntax, run_post_edit_hook
+
+        # Valid file
+        valid_res = run_post_edit_hook(
+            file_path=str(self.sample_file),
+            workspace=self.workspace,
+            auto_sync=True,
+        )
+        self.assertEqual(valid_res["status"], "PASSED")
+        self.assertTrue(valid_res["passed"])
+        self.assertEqual(len(valid_res["errors"]), 0)
+
+        # Invalid Python syntax file
+        broken_file = self.workspace / "broken.py"
+        broken_file.write_text("def syntax_err(", encoding="utf-8")
+        err_res = run_post_edit_hook(
+            file_path=str(broken_file),
+            workspace=self.workspace,
+            auto_sync=True,
+        )
+        self.assertEqual(err_res["status"], "FAILED")
+        self.assertFalse(err_res["passed"])
+        self.assertGreaterEqual(len(err_res["errors"]), 1)
+        self.assertEqual(err_res["errors"][0]["source"], "ast")
+
+        # Invalid JSON file
+        broken_json = self.workspace / "broken.json"
+        broken_json.write_text("{ unquoted: 123", encoding="utf-8")
+        json_errs = validate_file_syntax(broken_json)
+        self.assertGreaterEqual(len(json_errs), 1)
+        self.assertEqual(json_errs[0]["source"], "json")
+
+    def test_swarm_worktree_isolation(self):
+        import subprocess
+
+        # Initialize git repo in workspace
+        subprocess.run(["git", "init"], cwd=str(self.workspace), check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Tester"], cwd=str(self.workspace), check=True)
+        subprocess.run(["git", "config", "user.email", "tester@test.com"], cwd=str(self.workspace), check=True)
+        subprocess.run(["git", "add", "."], cwd=str(self.workspace), check=True)
+        subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=str(self.workspace), check=True)
+
+        turns_db = cs.get_turns_db_path(self.workspace)
+        cs.init_turns_db(turns_db)
+
+        # Dispatch swarm task
+        tasks = [
+            {
+                "task_id": "T01",
+                "title": "Add subtract function",
+                "role": "math-coder",
+                "target_files": ["src/calculator.py"],
+                "verification_cmd": "python3 -c 'print(1)'",
+            }
+        ]
+        d_res = cs.swarm_dispatch(
+            workspace=self.workspace,
+            session_id="test-session",
+            milestone="M001",
+            phase="01",
+            topology="scatter_gather",
+            tasks_data=tasks,
+            run_id="run-wt-01",
+        )
+        self.assertEqual(d_res["total_tasks"], 1)
+
+        # Claim with worktree
+        claimed = cs.swarm_claim(
+            workspace=self.workspace,
+            worker_id="agent-worker-1",
+            run_id="run-wt-01",
+            worktree=True,
+        )
+        self.assertIsNotNone(claimed)
+        self.assertEqual(claimed["task_id"], "T01")
+        self.assertIn("worktree_path", claimed)
+        self.assertEqual(claimed["worktree_branch"], "swarm/T01")
+
+        wt_path = Path(claimed["worktree_path"])
+        self.assertTrue(wt_path.exists())
+
+        # Modify file inside worktree
+        wt_file = wt_path / "src" / "calculator.py"
+        self.assertTrue(wt_file.exists())
+        with open(wt_file, "a", encoding="utf-8") as f:
+            f.write("\ndef subtract(a: int, b: int) -> int:\n    return a - b\n")
+
+        subprocess.run(["git", "add", "."], cwd=str(wt_path), check=True)
+        subprocess.run(["git", "commit", "-m", "Implement subtract"], cwd=str(wt_path), check=True)
+
+        # Verify main workspace does not have changes yet (isolation)
+        main_calc = self.workspace / "src" / "calculator.py"
+        self.assertNotIn("def subtract", main_calc.read_text(encoding="utf-8"))
+
+        # Report task with merge and teardown
+        rep = cs.swarm_report(
+            workspace=self.workspace,
+            task_id="T01",
+            status="PASSED",
+            exit_code=0,
+            summary="Implemented subtract in isolated worktree",
+            files=["src/calculator.py"],
+            merge=True,
+            teardown=True,
+        )
+        self.assertEqual(rep["status"], "PASSED")
+        self.assertEqual(rep["merge_status"], "merged")
+        self.assertTrue(rep["worktree_teardown"])
+
+        # Verify worktree directory is removed from disk
+        self.assertFalse(wt_path.exists())
+
+        # Verify main workspace received the merged changes
+        self.assertIn("def subtract", main_calc.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
