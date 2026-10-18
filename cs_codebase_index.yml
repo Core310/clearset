@@ -1,11 +1,11 @@
 # ClearSet Codebase Map & RAG Query Guide
 clearset_version: '1.0'
 database: '.cs/cs_codebase.db'
-last_updated: '2026-10-12T01:20:04.152815+00:00Z'
-git_commit: 'b63bea400971d1feca70d80a85ce7d2ba049e690'
+last_updated: '2026-10-18T07:40:15.265240+00:00Z'
+git_commit: 'c41d57ec31de6a15f79d7ce576d232f5f57b42c4'
 stats:
   total_indexed_files: 61
-  total_symbols: 140
+  total_symbols: 157
 
 domain_tags:
   testing:

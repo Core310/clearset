@@ -275,6 +275,35 @@ class MathEngine:
         # Verify main workspace received the merged changes
         self.assertIn("def subtract", main_calc.read_text(encoding="utf-8"))
 
+    def test_code_quality_auditor(self):
+        # 1. Clean code passes
+        clean_res = cs.audit_code(str(self.sample_file), record_to_db=False)
+        self.assertTrue(clean_res["passed"])
+        self.assertEqual(clean_res["verdict"], "PASS")
+        self.assertGreaterEqual(clean_res["score"], 70)
+        self.assertTrue(clean_res["syntax_valid"])
+        self.assertEqual(len(clean_res["issues"]), 0)
+
+        # 2. Syntax error blocks
+        syntax_res = cs.audit_code("def broken(:\n    pass\n", record_to_db=False)
+        self.assertFalse(syntax_res["passed"])
+        self.assertEqual(syntax_res["verdict"], "BLOCKED")
+        self.assertEqual(syntax_res["score"], 0)
+        self.assertFalse(syntax_res["syntax_valid"])
+
+        # 3. Silent exception swallowing blocks
+        bad_code = "def foo():\n    try:\n        pass\n    except Exception:\n        pass\n"
+        bad_res = cs.audit_code(bad_code, record_to_db=False)
+        self.assertFalse(bad_res["passed"])
+        self.assertEqual(bad_res["verdict"], "BLOCKED")
+        self.assertGreaterEqual(len(bad_res["issues"]), 1)
+        self.assertIn("Silent exception swallowing", bad_res["issues"][0])
+
+        # 4. audit_target auto-detects code vs document
+        target_res = cs.audit_target(str(self.sample_file), record_to_db=False)
+        self.assertEqual(target_res["type"], "code")
+        self.assertTrue(target_res["passed"])
+
 
 if __name__ == "__main__":
     unittest.main()

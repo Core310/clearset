@@ -1,13 +1,13 @@
 # ClearSet Codebase Directory Structure & Architectural Layout
 clearset_version: '1.0'
-last_updated: '2026-10-12T01:20:04.153390+00:00Z'
+last_updated: '2026-10-18T07:40:15.265798+00:00Z'
 root: '.'
 
 directories:
   clearset:
     layer: 'general'
     tags: []
-    primary_files: ["clearset/mcp.py", "clearset/fetch.py", "clearset/cleanup.py", "clearset/sync.py", "clearset/engine.py"]
+    primary_files: ["clearset/mcp.py", "clearset/fetch.py", "clearset/sync.py", "clearset/engine.py", "clearset/audit.py"]
   clearset/egg-info:
     layer: 'general'
     tags: []

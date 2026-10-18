@@ -2233,30 +2233,68 @@ def main():
                     )
 
     elif args.command == "audit":
-        from clearset.audit import audit_document
+        from clearset.audit import audit_target
 
-        res = audit_document(args.target, record_to_db=not args.no_db)
+        res = audit_target(args.target, record_to_db=not args.no_db)
         if args.json:
             print(json.dumps(res, indent=2))
             sys.exit(0 if res["passed"] else 1)
+
+        is_code = res.get("type") == "code"
         if args.verify:
-            if res["passed"]:
-                print(
-                    f"✓ [AI DEFENSE GATE]: PASSED (AI: {res['ai_probability']*100:.1f}%, 🟢 Green: {res['bucket_counts']['GREEN']}, 🔴 Red: {res['bucket_counts']['RED']})"
-                )
-                sys.exit(0)
+            if is_code:
+                if res["passed"]:
+                    print(
+                        f"✓ [CODE QUALITY GATE]: PASSED (Score: {res['score']}/100, Functions: {res['metrics']['functions']}, Warnings: {len(res['warnings'])})"
+                    )
+                    sys.exit(0)
+                else:
+                    print(
+                        f"✗ [CODE QUALITY GATE]: BLOCKED (Score: {res['score']}/100, Issues: {len(res['issues'])})"
+                    )
+                    sys.exit(1)
             else:
-                print(
-                    f"✗ [AI DEFENSE GATE]: BLOCKED (AI: {res['ai_probability']*100:.1f}%, Red Buckets: {res['bucket_counts']['RED']})"
-                )
-                sys.exit(1)
+                if res["passed"]:
+                    print(
+                        f"✓ [AI DEFENSE GATE]: PASSED (AI: {res['ai_probability']*100:.1f}%, 🟢 Green: {res['bucket_counts']['GREEN']}, 🔴 Red: {res['bucket_counts']['RED']})"
+                    )
+                    sys.exit(0)
+                else:
+                    print(
+                        f"✗ [AI DEFENSE GATE]: BLOCKED (AI: {res['ai_probability']*100:.1f}%, Red Buckets: {res['bucket_counts']['RED']})"
+                    )
+                    sys.exit(1)
+
         print("==================================================================")
-        print(f"  AI DEFENSE GATE AUDIT REPORT: {res['verdict']}")
-        print("==================================================================")
-        print(f"AI Risk Probability:    {res['ai_probability']*100:.1f}%")
-        print(f"Human Probability:      {res['human_probability']*100:.1f}%")
-        print(f"Passed:                 {res['passed']}")
-        print(f"Bucket Counts:          {res['bucket_counts']}")
+        if is_code:
+            print(f"  CODE QUALITY GATE AUDIT REPORT: {res['verdict']}")
+            print("==================================================================")
+            print(f"Target:                 {res['target']}")
+            print(f"Quality Score:          {res['score']}/100 (Pass threshold: >= 70)")
+            print(f"Syntax Valid:           {res['syntax_valid']}")
+            print(f"Verdict:                {res['verdict']}")
+            print()
+            m = res["metrics"]
+            print("Codebase Metrics:")
+            print(f"  • Total Lines         : {m['total_lines']}")
+            print(f"  • Functions           : {m['functions']}")
+            print(f"  • Classes             : {m['classes']}")
+            print(f"  • Max Nesting Depth   : {m['max_depth']}")
+            if res["issues"]:
+                print(f"\nBlocking Issues ({len(res['issues'])}):")
+                for iss in res["issues"]:
+                    print(f"  ✗ {iss}")
+            if res["warnings"]:
+                print(f"\nQuality Warnings ({len(res['warnings'])}):")
+                for w in res["warnings"]:
+                    print(f"  ⚠ {w}")
+        else:
+            print(f"  AI DEFENSE GATE AUDIT REPORT: {res['verdict']}")
+            print("==================================================================")
+            print(f"AI Risk Probability:    {res['ai_probability']*100:.1f}%")
+            print(f"Human Probability:      {res['human_probability']*100:.1f}%")
+            print(f"Passed:                 {res['passed']}")
+            print(f"Bucket Counts:          {res['bucket_counts']}")
         print("==================================================================")
         sys.exit(0 if res["passed"] else 1)
 

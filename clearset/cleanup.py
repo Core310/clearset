@@ -19,6 +19,8 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from clearset.engine import get_cs_dir
+
 IGNORED_DIRS = {
     ".git",
     ".cs",

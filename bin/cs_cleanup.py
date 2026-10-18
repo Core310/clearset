@@ -38,7 +38,15 @@ IGNORED_DIRS = {
     "backups",
     "logs",
 }
-SOURCE_EXTS = {".py", ".sh", ".yml", ".yaml", ".js", ".ts", ".c", ".cpp", ".rs"}
+CS_DIR_NAME = ".cs"
+LEGACY_CTA_DIR_NAME = ".cta"
+SOURCE_EXTS = {".py", ".sh", ".yml", ".yaml", ".js", ".ts", ".tsx", ".jsx", ".c", ".cpp", ".rs"}
+
+
+def get_cs_dir(workspace: Path) -> Path:
+    if (workspace / LEGACY_CTA_DIR_NAME).exists() and not (workspace / CS_DIR_NAME).exists():
+        return workspace / LEGACY_CTA_DIR_NAME
+    return workspace / CS_DIR_NAME
 
 
 def get_swarm_locks(workspace: Path) -> Tuple[Set[str], List[str]]:

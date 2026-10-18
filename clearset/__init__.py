@@ -37,7 +37,7 @@ from clearset.fetch import (
 from clearset.sync import sync_codebase_state
 from clearset.gate import run_verification_gate
 from clearset.hook import run_post_edit_hook, validate_file_syntax
-from clearset.audit import audit_document, evaluate_text
+from clearset.audit import audit_document, evaluate_text, audit_code, audit_target, CodeAuditor
 from clearset.stagger import stagger_assignment, CommitStaggerEngine
 
 __version__ = "1.2.0"
@@ -48,6 +48,9 @@ __all__ = [
     # Audit & Stagger
     "audit_document",
     "evaluate_text",
+    "audit_code",
+    "audit_target",
+    "CodeAuditor",
     "stagger_assignment",
     "CommitStaggerEngine",
     # Retrieval

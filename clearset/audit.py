@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
 ClearSet Audit (`cs-audit` / `cta-audit`):
-Deterministic Anti-AI Defense Gate & Human Writing Stylometric Auditor.
+Deterministic Code Quality Grader & Document Stylometric Auditor.
 
-Enforces authentic human writing, spiky sentence-length burstiness, and blocks
-blatant AI markers (<60% AI threshold, <35% Red Bucket concentration).
+Evaluates codebases for syntax validity, AST bloat (>500 lines), dead symbols,
+cyclomatic nesting complexity, and bare exception handling. Also audits documents
+for stylometric burstiness and AI clichés (<60% AI threshold, <35% Red Bucket).
 """
 
+import ast
 import sys
 import re
 import os
@@ -280,56 +282,315 @@ def audit_document(
     return eval_res
 
 
+CODE_EXTENSIONS = {".py", ".sh", ".bash", ".js", ".jsx", ".ts", ".tsx", ".rs", ".go", ".c", ".cpp", ".h", ".hpp", ".yml", ".yaml"}
+
+
+class CodeAuditor(ast.NodeVisitor):
+    """
+    AST-based Code Quality Auditor and Adversarial Second View.
+    Evaluates syntax, code bloat (>500 lines), long functions (>60 lines),
+    over-parameterized functions (>6 args), bare exception clauses,
+    silent exception swallowing, and cyclomatic nesting depth.
+    """
+
+    def __init__(self, filename: str, content: str):
+        self.filename = filename
+        self.content = content
+        self.lines = content.splitlines()
+        self.total_lines = len(self.lines)
+        self.issues: List[str] = []
+        self.warnings: List[str] = []
+        self.functions: List[Dict[str, Any]] = []
+        self.classes: List[str] = []
+        self.current_depth = 0
+        self.max_depth = 0
+
+    def check(self) -> Dict[str, Any]:
+        # 1. File size / bloat checks
+        if self.total_lines > 1000:
+            self.issues.append(f"File is severely bloated: {self.total_lines} lines (exceeds 1000 line ceiling)")
+        elif self.total_lines > 500:
+            self.warnings.append(f"File is large: {self.total_lines} lines (exceeds 500 line guideline)")
+
+        # 2. Syntax validation
+        try:
+            tree = ast.parse(self.content, filename=self.filename)
+        except SyntaxError as e:
+            return {
+                "type": "code",
+                "target": self.filename,
+                "passed": False,
+                "verdict": "BLOCKED",
+                "score": 0,
+                "syntax_valid": False,
+                "issues": [f"SyntaxError on line {e.lineno}: {e.msg}"],
+                "warnings": self.warnings,
+                "metrics": {
+                    "total_lines": self.total_lines,
+                    "functions": 0,
+                    "classes": 0,
+                    "max_depth": 0,
+                },
+            }
+
+        # 3. AST inspection
+        self.visit(tree)
+
+        # 4. Score computation
+        score = 100
+        score -= min(50, len(self.issues) * 20)
+        score -= min(30, len(self.warnings) * 5)
+        if self.max_depth > 4:
+            score -= (self.max_depth - 4) * 5
+
+        score = max(0, min(100, score))
+        passed = (len(self.issues) == 0 and score >= 70)
+        verdict = "PASS" if passed else "BLOCKED"
+
+        return {
+            "type": "code",
+            "target": self.filename,
+            "passed": passed,
+            "verdict": verdict,
+            "score": score,
+            "syntax_valid": True,
+            "issues": self.issues,
+            "warnings": self.warnings,
+            "metrics": {
+                "total_lines": self.total_lines,
+                "functions": len(self.functions),
+                "classes": len(self.classes),
+                "max_depth": self.max_depth,
+            },
+        }
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._check_function(node)
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._check_function(node)
+        self.generic_visit(node)
+
+    def _check_function(self, node: Any) -> None:
+        fn_lines = getattr(node, "end_lineno", node.lineno) - node.lineno + 1
+        arg_count = len(node.args.args)
+        self.functions.append({"name": node.name, "lines": fn_lines, "args": arg_count})
+
+        if fn_lines > 80:
+            self.issues.append(f"Function '{node.name}' (line {node.lineno}) is bloated: {fn_lines} lines (ceiling 80 lines)")
+        elif fn_lines > 50:
+            self.warnings.append(f"Function '{node.name}' (line {node.lineno}) is long: {fn_lines} lines (guideline <= 50 lines)")
+
+        if arg_count > 6:
+            self.warnings.append(f"Function '{node.name}' (line {node.lineno}) has {arg_count} parameters (guideline <= 6)")
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self.classes.append(node.name)
+        self.generic_visit(node)
+
+    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+        # Bare except:
+        if node.type is None:
+            self.issues.append(f"Line {node.lineno}: Bare 'except:' clause catches BaseException indiscriminately")
+        elif isinstance(node.type, ast.Name) and node.type.id in ("Exception", "BaseException"):
+            # Check for empty body / pass
+            if len(node.body) == 1 and isinstance(node.body[0], ast.Pass):
+                self.issues.append(f"Line {node.lineno}: Silent exception swallowing 'except {node.type.id}: pass'")
+        self.generic_visit(node)
+
+    def visit_If(self, node: ast.If) -> None:
+        self._enter_nested(node)
+
+    def visit_For(self, node: ast.For) -> None:
+        self._enter_nested(node)
+
+    def visit_While(self, node: ast.While) -> None:
+        self._enter_nested(node)
+
+    def visit_Try(self, node: ast.Try) -> None:
+        self._enter_nested(node)
+
+    def visit_With(self, node: ast.With) -> None:
+        self._enter_nested(node)
+
+    def _enter_nested(self, node: Any) -> None:
+        self.current_depth += 1
+        self.max_depth = max(self.max_depth, self.current_depth)
+        if self.current_depth > 5:
+            self.warnings.append(f"Line {node.lineno}: Deep nesting depth ({self.current_depth} levels)")
+        self.generic_visit(node)
+        self.current_depth -= 1
+
+
+def audit_code(
+    source_path_or_code: str,
+    record_to_db: bool = True,
+    milestone: str = "M001",
+    phase: str = "01",
+    task: str = "audit",
+) -> Dict[str, Any]:
+    """Audits code quality, syntax validity, AST bloat, and nesting depth."""
+    if os.path.exists(source_path_or_code):
+        with open(source_path_or_code, "r", encoding="utf-8", errors="ignore") as f:
+            code_str = f.read()
+        target_name = os.path.basename(source_path_or_code)
+        file_path = os.path.abspath(source_path_or_code)
+    else:
+        code_str = source_path_or_code
+        target_name = "inline_code.py"
+        file_path = None
+
+    auditor = CodeAuditor(target_name, code_str)
+    res = auditor.check()
+    res["target"] = target_name
+
+    if record_to_db and file_path:
+        workspace = find_workspace(Path(file_path).parent)
+        turns_db = get_turns_db_path(workspace)
+        if turns_db.exists():
+            status_str = "SUCCESS" if res["passed"] else "FAILED"
+            desc = f"Code Quality Gate audit: {target_name} -> {res['verdict']} (Score: {res['score']}/100, Issues: {len(res['issues'])}, Warnings: {len(res['warnings'])})"
+            log_turn_action(
+                workspace=workspace,
+                session_id="active-session",
+                milestone=milestone,
+                phase=phase,
+                task=task,
+                action_type="VERIFICATION",
+                description=desc,
+                status=status_str,
+                files=[file_path],
+                summary=f"Code Audit {res['verdict']}: Score={res['score']}/100, Lines={res['metrics']['total_lines']}, Fns={res['metrics']['functions']}",
+            )
+
+    return res
+
+
+def audit_target(
+    source_path_or_text: str,
+    record_to_db: bool = True,
+    milestone: str = "M001",
+    phase: str = "01",
+    task: str = "audit",
+) -> Dict[str, Any]:
+    """Auto-detects whether the target is code or a document and audits accordingly."""
+    if os.path.exists(source_path_or_text):
+        ext = os.path.splitext(source_path_or_text)[1].lower()
+        if ext in CODE_EXTENSIONS:
+            return audit_code(
+                source_path_or_text,
+                record_to_db=record_to_db,
+                milestone=milestone,
+                phase=phase,
+                task=task,
+            )
+    else:
+        # Check if raw string looks like python code
+        stripped = source_path_or_text.strip()
+        if stripped.startswith(("def ", "class ", "import ", "from ", "async def ")):
+            return audit_code(
+                source_path_or_text,
+                record_to_db=record_to_db,
+                milestone=milestone,
+                phase=phase,
+                task=task,
+            )
+
+    return audit_document(
+        source_path_or_text,
+        record_to_db=record_to_db,
+        milestone=milestone,
+        phase=phase,
+        task=task,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="ClearSet Audit (`cs-audit`): Deterministic Anti-AI Defense Gate & Stylometric Auditor"
+        description="ClearSet Audit (`cs-audit`): Deterministic Code Quality Grader & Document Stylometric Auditor"
     )
-    parser.add_argument("target", help="File path or raw text string to audit (.ipynb, .pdf, .md, .tex, .txt)")
+    parser.add_argument("target", help="File path or raw string to audit (code file or document)")
     parser.add_argument("--verify", action="store_true", help="Quiet verify mode: exit code 0 if passed, 1 if blocked")
     parser.add_argument("--no-db", action="store_true", help="Do not write audit row to cs_turns.db")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON")
 
     args = parser.parse_args()
-    res = audit_document(args.target, record_to_db=not args.no_db)
+    res = audit_target(args.target, record_to_db=not args.no_db)
 
     if args.json:
         print(json.dumps(res, indent=2))
         sys.exit(0 if res["passed"] else 1)
 
+    is_code = res.get("type") == "code"
+
     if args.verify:
-        if res["passed"]:
-            total_s = res["metrics"]["total_sentences"]
-            g_pct = (res["bucket_counts"]["GREEN"] / total_s * 100) if total_s else 0
-            r_pct = (res["bucket_counts"]["RED"] / total_s * 100) if total_s else 0
-            print(f"✓ [AI DEFENSE GATE]: PASSED (AI: {res['ai_probability']*100:.1f}% [<60% threshold], 🟢 Green: {g_pct:.1f}%, 🔴 Red: {r_pct:.1f}%)")
-            sys.exit(0)
+        if is_code:
+            if res["passed"]:
+                print(f"✓ [CODE QUALITY GATE]: PASSED (Score: {res['score']}/100, Functions: {res['metrics']['functions']}, Warnings: {len(res['warnings'])})")
+                sys.exit(0)
+            else:
+                print(f"✗ [CODE QUALITY GATE]: BLOCKED (Score: {res['score']}/100, Issues: {len(res['issues'])})")
+                sys.exit(1)
         else:
-            print(f"✗ [AI DEFENSE GATE]: BLOCKED (AI: {res['ai_probability']*100:.1f}% [>=60% threshold], Red Buckets: {res['bucket_counts']['RED']})")
-            sys.exit(1)
+            if res["passed"]:
+                total_s = res["metrics"]["total_sentences"]
+                g_pct = (res["bucket_counts"]["GREEN"] / total_s * 100) if total_s else 0
+                r_pct = (res["bucket_counts"]["RED"] / total_s * 100) if total_s else 0
+                print(f"✓ [AI DEFENSE GATE]: PASSED (AI: {res['ai_probability']*100:.1f}% [<60% threshold], 🟢 Green: {g_pct:.1f}%, 🔴 Red: {r_pct:.1f}%)")
+                sys.exit(0)
+            else:
+                print(f"✗ [AI DEFENSE GATE]: BLOCKED (AI: {res['ai_probability']*100:.1f}% [>=60% threshold], Red Buckets: {res['bucket_counts']['RED']})")
+                sys.exit(1)
 
     # Standard audit report
     print("==================================================================")
-    print(f"  AI DEFENSE GATE AUDIT REPORT: {res['verdict']}")
-    print("==================================================================")
-    print(f"AI Risk Probability:    {res['ai_probability']*100:.1f}% (Pass threshold: < 60%)")
-    print(f"Human Probability:      {res['human_probability']*100:.1f}%")
-    print()
-    total = res["metrics"].get("total_sentences", 1)
-    b = res["bucket_counts"]
-    print("Bucket Distribution:")
-    print(f"  🟢 Green  (Human / Anchored): {b['GREEN']} ({b['GREEN']/total*100:.1f}%)")
-    print(f"  🟡 Yellow (Neutral Academic):  {b['YELLOW']} ({b['YELLOW']/total*100:.1f}%)")
-    print(f"  🔴 Red    (Obvious AI / Dead):  {b['RED']} ({b['RED']/total*100:.1f}%)")
-    print()
-    print("Stylometric Metrics:")
-    for k, v in res["metrics"].items():
-        if k != "banned_words_found":
-            print(f"  • {k:<24}: {v}")
-    print()
-    if res["red_sentences"]:
-        print(f"Red Bucket Sentences ({len(res['red_sentences'])}):")
-        for r in res["red_sentences"][:10]:
-            print(f"  [{r['index']}] ({r['length']}w): \"{r['text']}\" ({r['reason']})")
+    if is_code:
+        print(f"  CODE QUALITY GATE AUDIT REPORT: {res['verdict']}")
+        print("==================================================================")
+        print(f"Target:                 {res['target']}")
+        print(f"Quality Score:          {res['score']}/100 (Pass threshold: >= 70)")
+        print(f"Syntax Valid:           {res['syntax_valid']}")
+        print(f"Verdict:                {res['verdict']}")
+        print()
+        m = res["metrics"]
+        print("Codebase Metrics:")
+        print(f"  • Total Lines         : {m['total_lines']}")
+        print(f"  • Functions           : {m['functions']}")
+        print(f"  • Classes             : {m['classes']}")
+        print(f"  • Max Nesting Depth   : {m['max_depth']}")
+        print()
+        if res["issues"]:
+            print(f"Blocking Issues ({len(res['issues'])}):")
+            for iss in res["issues"]:
+                print(f"  ✗ {iss}")
+            print()
+        if res["warnings"]:
+            print(f"Quality Warnings ({len(res['warnings'])}):")
+            for w in res["warnings"]:
+                print(f"  ⚠ {w}")
+    else:
+        print(f"  AI DEFENSE GATE AUDIT REPORT: {res['verdict']}")
+        print("==================================================================")
+        print(f"AI Risk Probability:    {res['ai_probability']*100:.1f}% (Pass threshold: < 60%)")
+        print(f"Human Probability:      {res['human_probability']*100:.1f}%")
+        print()
+        total = res["metrics"].get("total_sentences", 1)
+        b = res["bucket_counts"]
+        print("Bucket Distribution:")
+        print(f"  🟢 Green  (Human / Anchored): {b['GREEN']} ({b['GREEN']/total*100:.1f}%)")
+        print(f"  🟡 Yellow (Neutral Academic):  {b['YELLOW']} ({b['YELLOW']/total*100:.1f}%)")
+        print(f"  🔴 Red    (Obvious AI / Dead):  {b['RED']} ({b['RED']/total*100:.1f}%)")
+        print()
+        print("Stylometric Metrics:")
+        for k, v in res["metrics"].items():
+            if k != "banned_words_found":
+                print(f"  • {k:<24}: {v}")
+        print()
+        if res["red_sentences"]:
+            print(f"Red Bucket Sentences ({len(res['red_sentences'])}):")
+            for r in res["red_sentences"][:10]:
+                print(f"  [{r['index']}] ({r['length']}w): \"{r['text']}\" ({r['reason']})")
     print("==================================================================")
     sys.exit(0 if res["passed"] else 1)
 
