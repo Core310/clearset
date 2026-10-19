@@ -39,6 +39,12 @@ IGNORED_DIRS = {
     "archive",
     "backups",
     "logs",
+    "media",
+    "trash",
+    "docker",
+    "photos",
+    "jetbrains",
+    "lost+found",
 }
 SOURCE_EXTS = {".py", ".sh", ".yml", ".yaml", ".js", ".ts", ".c", ".cpp", ".rs"}
 
@@ -117,6 +123,32 @@ def find_dead_symbols(workspace: Path, locked_files: Set[str]) -> List[Dict]:
                     file_cache[rel_p] = ""
             return file_cache[rel_p]
 
+        # Pre-collect all relevant source files once for reference scanning
+        source_rel_paths = []
+        for root, dirs, files in os.walk(workspace):
+            dirs[:] = [
+                d
+                for d in dirs
+                if d not in IGNORED_DIRS
+                and not d.startswith(".")
+                and not (Path(root) / d).is_symlink()
+            ]
+            for file in files:
+                fp = Path(root) / file
+                if fp.suffix in SOURCE_EXTS:
+                    source_rel_paths.append(fp.relative_to(workspace).as_posix())
+
+        # Build inverted token-to-files index for O(1) symbol reference resolution
+        token_to_files: Dict[str, Set[str]] = {}
+        for rel in source_rel_paths:
+            content = get_content(rel)
+            if not content:
+                continue
+            for word in set(re.findall(r"\b[A-Za-z_][A-Za-z0-9_]*\b", content)):
+                if word not in token_to_files:
+                    token_to_files[word] = set()
+                token_to_files[word].add(rel)
+
         for s_id, f_path, name, kind, line_start, vis in symbols:
             norm_path = Path(f_path).as_posix()
             # Ignore locked, backup, or entrypoint files
@@ -131,43 +163,27 @@ def find_dead_symbols(workspace: Path, locked_files: Set[str]) -> List[Dict]:
             if vis == "public":
                 continue
 
+            # If referenced in any other file across the codebase, not dead
+            referencing_files = token_to_files.get(name, set())
+            if len(referencing_files - {norm_path}) > 0:
+                continue
+
+            # If referenced more than once in its own file (definition + internal call), not dead
             own_content = get_content(norm_path)
             pattern = re.compile(rf"\b{re.escape(name)}\b")
             own_matches = len(pattern.findall(own_content))
-
-            # If referenced more than once in its own file (definition + call), not dead
             if own_matches > 1:
                 continue
 
-            # Check if referenced across other source files
-            is_referenced = False
-            for root, dirs, files in os.walk(workspace):
-                dirs[:] = [
-                    d for d in dirs if d not in IGNORED_DIRS and not d.startswith(".")
-                ]
-                for file in files:
-                    fp = Path(root) / file
-                    if fp.suffix in SOURCE_EXTS:
-                        rel = fp.relative_to(workspace).as_posix()
-                        if rel == norm_path:
-                            continue
-                        text = get_content(rel)
-                        if pattern.search(text):
-                            is_referenced = True
-                            break
-                if is_referenced:
-                    break
-
-            if not is_referenced:
-                dead.append(
-                    {
-                        "id": f"A{len(dead) + 1}",
-                        "file": norm_path,
-                        "name": name,
-                        "kind": kind,
-                        "line": line_start,
-                    }
-                )
+            dead.append(
+                {
+                    "id": f"A{len(dead) + 1}",
+                    "file": norm_path,
+                    "name": name,
+                    "kind": kind,
+                    "line": line_start,
+                }
+            )
         conn.close()
     except sqlite3.Error:
         pass
@@ -178,7 +194,13 @@ def find_bloat(workspace: Path, max_lines: int = 500) -> List[Dict]:
     """Flag source files exceeding max line threshold (Grug: fear big file)."""
     bloat = []
     for root, dirs, files in os.walk(workspace):
-        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS and not d.startswith(".")]
+        dirs[:] = [
+            d
+            for d in dirs
+            if d not in IGNORED_DIRS
+            and not d.startswith(".")
+            and not (Path(root) / d).is_symlink()
+        ]
         for file in files:
             p = Path(root) / file
             if p.suffix in SOURCE_EXTS:
@@ -202,7 +224,12 @@ def find_clutter(workspace: Path, locked_files: Set[str]) -> List[Dict]:
     temp_exts = {".pyc", ".pyo", ".orig", ".tmp"}
 
     for root, dirs, files in os.walk(workspace):
-        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS or d in cache_dirs]
+        dirs[:] = [
+            d
+            for d in dirs
+            if (d not in IGNORED_DIRS and not (Path(root) / d).is_symlink())
+            or d in cache_dirs
+        ]
         for d in list(dirs):
             if d in cache_dirs:
                 p = Path(root) / d
