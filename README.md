@@ -51,7 +51,7 @@ git clone https://github.com/Core310/clearset.git ~/.local/share/clearset
 ```
 
 This installs six CLI wrappers into `~/.local/bin/`:
-- `cs` — Core lifecycle engine (init, map, query, plan, swarm, checkpoint, resume)
+- `cs` — Core lifecycle engine (init, map, query, plan, swarm, checkpoint, clear, resume)
 - `cs-fetch` — Token-budgeted code, symbol, and outline retriever
 - `cs-sync` — Git-diff AST auto-synchronizer
 - `cs-gate` — Deterministic test runner and SQLite turn audit gate
@@ -105,10 +105,14 @@ Runs compiler, linter, or test commands, captures return codes, and records the 
 cs-gate --milestone "M001" --phase "01" --task "1.1" -- "pytest tests/"
 ```
 
-### 5. Checkpoint & Resume
+### 5. Checkpoint, Clear & Resume
 Before clearing the context window:
 
 ```bash
+# Atomic single-shot clear (syncs diffs, checkpoints state, emits RESUME HERE.md)
+cs clear --next "Implement token refresh route"
+
+# Or manual checkpoint
 cs checkpoint --milestone "M001" --phase "01" --task "1.2" --next "Implement token refresh route"
 ```
 
@@ -217,7 +221,7 @@ The repository includes 11 agent skills:
 | **`cs-query`** | Token-budgeted SQLite RAG & call-graph retriever | `cs-fetch symbol`, `outline`, `slice` |
 | **`cs-planner`** | Spec-driven hierarchy engine (Milestones -> Phases -> Tasks) | `cs log-learning --kind decision` |
 | **`cs-executor`** | Task execution with test gates and turn logging | `cs log-action --status SUCCESS` |
-| **`cs-clear`** | State checkpointing and `RESUME HERE.md` generator | `cs checkpoint` |
+| **`cs-clear`** | State checkpointing and context reset generator | `cs clear` |
 | **`cs-resume`** | Instant session restoration after `/clear` | `cs resume` |
 | **`cs-swarm`** | Blackboard-gated multi-agent coordinator | `cs swarm-dispatch`, `cs swarm-claim` |
 | **`cs-cleanup`** | AST dead symbol detection and ruff styler | `cs-cleanup scan`, `apply` |

@@ -304,6 +304,65 @@ class MathEngine:
         self.assertEqual(target_res["type"], "code")
         self.assertTrue(target_res["passed"])
 
+    def test_clear_workspace(self):
+        # 1. Initial clear with explicit parameters
+        res1 = cs.clear_workspace(
+            workspace=self.workspace,
+            milestone="M002",
+            phase="Phase 2",
+            task="Task 2.1",
+            next_todo="Run database migrations",
+        )
+        self.assertEqual(res1["status"], "ok")
+        self.assertEqual(res1["milestone"], "M002")
+        self.assertEqual(res1["phase"], "Phase 2")
+        self.assertEqual(res1["task"], "Task 2.1")
+        self.assertEqual(res1["next_todo"], "Run database migrations")
+
+        continue_file = self.workspace / ".continue-here"
+        resume_file = self.workspace / "RESUME HERE.md"
+        self.assertTrue(continue_file.exists())
+        self.assertTrue(resume_file.exists())
+
+        c_text = continue_file.read_text(encoding="utf-8")
+        self.assertIn("M002", c_text)
+        self.assertIn("Phase 2", c_text)
+        self.assertIn("Task 2.1", c_text)
+        self.assertIn("Run database migrations", c_text)
+
+        r_text = resume_file.read_text(encoding="utf-8")
+        self.assertIn("M002", r_text)
+        self.assertIn("Run database migrations", r_text)
+
+        # 2. Subsequent clear inheriting milestone, phase, task from .continue-here
+        res2 = cs.clear_workspace(
+            workspace=self.workspace,
+            next_todo="Implement API endpoints",
+        )
+        self.assertEqual(res2["status"], "ok")
+        self.assertEqual(res2["milestone"], "M002")
+        self.assertEqual(res2["phase"], "Phase 2")
+        self.assertEqual(res2["task"], "Task 2.1")
+        self.assertEqual(res2["next_todo"], "Implement API endpoints")
+
+        # 3. CLI execution via bin/cs_engine.py
+        import subprocess
+        cs_engine_bin = Path(__file__).parent.parent / "bin" / "cs_engine.py"
+        cmd = [
+            "python3",
+            str(cs_engine_bin),
+            "--workspace",
+            str(self.workspace),
+            "clear",
+            "--next",
+            "CLI test verification",
+            "--json",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        cli_out = json.loads(proc.stdout)
+        self.assertEqual(cli_out["status"], "ok")
+        self.assertEqual(cli_out["next_todo"], "CLI test verification")
+
 
 if __name__ == "__main__":
     unittest.main()

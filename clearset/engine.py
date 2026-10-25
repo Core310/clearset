@@ -24,6 +24,7 @@ CODEBASE_DB_NAME = "cs_codebase.db"
 CODEBASE_INDEX_YML = "cs_codebase_index.yml"
 DIR_STRUCTURE_YML = "cs_directory_structure.yml"
 RESUME_FILE = "RESUME HERE.md"
+CONTINUE_FILE = ".continue-here"
 
 IGNORED_DIRS = {
     ".git",
@@ -59,6 +60,8 @@ IGNORED_DIRS = {
     "BT_backup",
     "kcef",
     "assets",
+    "jetbrains",
+    "trash",
 }
 
 IGNORED_EXTENSIONS = {
@@ -933,15 +936,18 @@ def map_codebase(workspace: Path, incremental: bool = False) -> Dict[str, Any]:
 
     cur.execute("SELECT file_path FROM files")
     db_files = [r[0] for r in cur.fetchall()]
-    for db_f in db_files:
-        if db_f not in current_rel_paths:
-            cur.execute("DELETE FROM files WHERE file_path = ?", (db_f,))
-            cur.execute("DELETE FROM symbols WHERE file_path = ?", (db_f,))
-            cur.execute("DELETE FROM relationships WHERE source_id = ?", (db_f,))
-            cur.execute("DELETE FROM tags WHERE target_id = ?", (db_f,))
-            cur.execute("DELETE FROM codebase_fts WHERE file_path = ?", (db_f,))
-            cur.execute("DELETE FROM git_tracker WHERE file_path = ?", (db_f,))
-            stats["deleted"] += 1
+    stale_files = [f for f in db_files if f not in current_rel_paths]
+    if stale_files:
+        cur.execute("CREATE TEMP TABLE stale_paths (path TEXT PRIMARY KEY)")
+        cur.executemany("INSERT OR IGNORE INTO stale_paths VALUES (?)", [(f,) for f in stale_files])
+        cur.execute("DELETE FROM files WHERE file_path IN (SELECT path FROM stale_paths)")
+        cur.execute("DELETE FROM symbols WHERE file_path IN (SELECT path FROM stale_paths)")
+        cur.execute("DELETE FROM relationships WHERE source_id IN (SELECT path FROM stale_paths)")
+        cur.execute("DELETE FROM tags WHERE target_id IN (SELECT path FROM stale_paths)")
+        cur.execute("DELETE FROM codebase_fts WHERE file_path IN (SELECT path FROM stale_paths)")
+        cur.execute("DELETE FROM git_tracker WHERE file_path IN (SELECT path FROM stale_paths)")
+        cur.execute("DROP TABLE stale_paths")
+        stats["deleted"] = len(stale_files)
 
     conn.commit()
     conn.close()
@@ -1327,6 +1333,144 @@ def load_resume_state(workspace: Path) -> Dict[str, Any]:
         "recent_actions": recent_actions,
         "unresolved_concerns": unresolved_concerns,
         "resume_file": str(resume_file),
+    }
+
+
+def parse_continue_here(continue_file: Path) -> Dict[str, str]:
+    state: Dict[str, str] = {}
+    if not continue_file.exists():
+        return state
+    try:
+        content = continue_file.read_text(encoding="utf-8")
+        for line in content.splitlines():
+            line = line.strip()
+            m = re.match(r"^[-*]\s+\*\*([A-Za-z0-9_\- ]+)\*\*:\s*(.*)$", line)
+            if m:
+                key = m.group(1).strip().lower()
+                val = m.group(2).strip()
+                if "milestone" in key:
+                    state["milestone"] = val
+                elif "sub-phase" in key or "task" in key:
+                    state["task"] = val
+                elif "phase" in key:
+                    state["phase"] = val
+                elif "next" in key or "exact" in key:
+                    state["next_todo"] = val
+    except Exception:
+        pass
+    return state
+
+
+def get_latest_checkpoint(workspace: Path) -> Dict[str, str]:
+    state: Dict[str, str] = {}
+    turns_db = get_turns_db_path(workspace)
+    if not turns_db.exists():
+        return state
+    try:
+        conn = sqlite3.connect(turns_db)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT milestone, phase, task, next_todo FROM checkpoints ORDER BY id DESC LIMIT 1"
+        )
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            if row[0]:
+                state["milestone"] = str(row[0])
+            if row[1]:
+                state["phase"] = str(row[1])
+            if row[2]:
+                state["task"] = str(row[2])
+            if row[3]:
+                state["next_todo"] = str(row[3])
+    except Exception:
+        pass
+    return state
+
+
+def clear_workspace(
+    workspace: Path,
+    milestone: Optional[str] = None,
+    phase: Optional[str] = None,
+    task: Optional[str] = None,
+    next_todo: Optional[str] = None,
+) -> Dict[str, Any]:
+    continue_file = workspace / CONTINUE_FILE
+    parsed_continue = parse_continue_here(continue_file)
+    db_checkpoint = get_latest_checkpoint(workspace)
+
+    final_milestone = (
+        milestone
+        or parsed_continue.get("milestone")
+        or db_checkpoint.get("milestone")
+        or "M001"
+    )
+    final_phase = (
+        phase
+        or parsed_continue.get("phase")
+        or db_checkpoint.get("phase")
+        or "Phase 1"
+    )
+    final_task = (
+        task
+        or parsed_continue.get("task")
+        or db_checkpoint.get("task")
+        or "Task 1"
+    )
+    final_next = (
+        next_todo
+        or parsed_continue.get("next_todo")
+        or db_checkpoint.get("next_todo")
+        or "Resume execution on next pending task"
+    )
+
+    codebase_db = get_codebase_db_path(workspace)
+    incremental = codebase_db.exists()
+    map_stats = map_codebase(workspace, incremental=incremental)
+
+    # Log turn action recording context checkpoint
+    log_turn_action(
+        workspace=workspace,
+        session_id="checkpoint",
+        milestone=final_milestone,
+        phase=final_phase,
+        task=final_task,
+        action_type="CHECKPOINT",
+        description=f"Context cleared and checkpointed: {final_next}",
+        status="SUCCESS",
+        files=[CONTINUE_FILE, RESUME_FILE],
+        summary="Codebase synced and execution checkpoint generated.",
+    )
+
+    resume_path = create_checkpoint(
+        workspace=workspace,
+        milestone=final_milestone,
+        phase=final_phase,
+        task=final_task,
+        next_todo=final_next,
+    )
+
+    continue_lines = [
+        "# RESUME HERE",
+        "",
+        f"- **MILESTONE**: {final_milestone}",
+        f"- **Phase**: {final_phase}",
+        f"- **Sub-phase**: {final_task}",
+        f"- **Next**: {final_next}",
+        "",
+    ]
+    continue_file.write_text("\n".join(continue_lines), encoding="utf-8")
+
+    return {
+        "status": "ok",
+        "milestone": final_milestone,
+        "phase": final_phase,
+        "task": final_task,
+        "next_todo": final_next,
+        "resume_file": str(resume_path),
+        "continue_here_file": str(continue_file),
+        "stats": map_stats,
+        "message": "Workspace checkpointed successfully. Safe to execute /clear.",
     }
 
 
@@ -1867,6 +2011,15 @@ def main():
     p_chk.add_argument("--next", required=True, help="Exact next todo item")
     p_chk.add_argument("--json", action="store_true", help="Output result as JSON")
 
+    p_clear = subparsers.add_parser(
+        "clear", help="Atomically sync codebase diff, checkpoint state, and emit RESUME HERE"
+    )
+    p_clear.add_argument("--milestone", help="Current milestone (defaults to .continue-here or DB)")
+    p_clear.add_argument("--phase", help="Current phase (defaults to .continue-here or DB)")
+    p_clear.add_argument("--task", help="Current task (defaults to .continue-here or DB)")
+    p_clear.add_argument("--next", help="Exact next todo item")
+    p_clear.add_argument("--json", action="store_true", help="Output result as JSON")
+
     p_res = subparsers.add_parser(
         "resume", help="Bootstrap context from RESUME HERE.md and SQLite"
     )
@@ -2112,6 +2265,34 @@ def main():
         else:
             print(f"Checkpoint created successfully at {path}")
 
+    elif args.command == "clear":
+        res = clear_workspace(
+            workspace=workspace,
+            milestone=args.milestone,
+            phase=args.phase,
+            task=args.task,
+            next_todo=args.next,
+        )
+        if getattr(args, "json", False):
+            print(json.dumps(res, indent=2))
+        else:
+            print("==================================================================")
+            print("  CLEARSET CONTEXT CHECKPOINT READY: SAFE TO EXECUTE /clear")
+            print("==================================================================")
+            print(f"Milestone:     {res['milestone']}")
+            print(f"Phase:         {res['phase']}")
+            print(f"Task:          {res['task']}")
+            print(f"Next Todo:     {res['next_todo']}")
+            print(f"Resume File:   {res['resume_file']}")
+            print(f"Continue File: {res['continue_here_file']}")
+            stats = res.get("stats", {})
+            print(
+                f"Codebase Sync: {stats.get('indexed', 0)} indexed, {stats.get('deleted', 0)} deleted"
+            )
+            print("==================================================================")
+            print("Session checkpointed to SQLite and RESUME HERE.md.")
+            print("You can now safely reset context with /clear.")
+
     elif args.command == "resume":
         data = load_resume_state(workspace)
         if args.json:
@@ -2233,30 +2414,68 @@ def main():
                     )
 
     elif args.command == "audit":
-        from clearset.audit import audit_document
+        from clearset.audit import audit_target
 
-        res = audit_document(args.target, record_to_db=not args.no_db)
+        res = audit_target(args.target, record_to_db=not args.no_db)
         if args.json:
             print(json.dumps(res, indent=2))
             sys.exit(0 if res["passed"] else 1)
+
+        is_code = res.get("type") == "code"
         if args.verify:
-            if res["passed"]:
-                print(
-                    f"✓ [AI DEFENSE GATE]: PASSED (AI: {res['ai_probability']*100:.1f}%, 🟢 Green: {res['bucket_counts']['GREEN']}, 🔴 Red: {res['bucket_counts']['RED']})"
-                )
-                sys.exit(0)
+            if is_code:
+                if res["passed"]:
+                    print(
+                        f"✓ [CODE QUALITY GATE]: PASSED (Score: {res['score']}/100, Functions: {res['metrics']['functions']}, Warnings: {len(res['warnings'])})"
+                    )
+                    sys.exit(0)
+                else:
+                    print(
+                        f"✗ [CODE QUALITY GATE]: BLOCKED (Score: {res['score']}/100, Issues: {len(res['issues'])})"
+                    )
+                    sys.exit(1)
             else:
-                print(
-                    f"✗ [AI DEFENSE GATE]: BLOCKED (AI: {res['ai_probability']*100:.1f}%, Red Buckets: {res['bucket_counts']['RED']})"
-                )
-                sys.exit(1)
+                if res["passed"]:
+                    print(
+                        f"✓ [AI DEFENSE GATE]: PASSED (AI: {res['ai_probability']*100:.1f}%, 🟢 Green: {res['bucket_counts']['GREEN']}, 🔴 Red: {res['bucket_counts']['RED']})"
+                    )
+                    sys.exit(0)
+                else:
+                    print(
+                        f"✗ [AI DEFENSE GATE]: BLOCKED (AI: {res['ai_probability']*100:.1f}%, Red Buckets: {res['bucket_counts']['RED']})"
+                    )
+                    sys.exit(1)
+
         print("==================================================================")
-        print(f"  AI DEFENSE GATE AUDIT REPORT: {res['verdict']}")
-        print("==================================================================")
-        print(f"AI Risk Probability:    {res['ai_probability']*100:.1f}%")
-        print(f"Human Probability:      {res['human_probability']*100:.1f}%")
-        print(f"Passed:                 {res['passed']}")
-        print(f"Bucket Counts:          {res['bucket_counts']}")
+        if is_code:
+            print(f"  CODE QUALITY GATE AUDIT REPORT: {res['verdict']}")
+            print("==================================================================")
+            print(f"Target:                 {res['target']}")
+            print(f"Quality Score:          {res['score']}/100 (Pass threshold: >= 70)")
+            print(f"Syntax Valid:           {res['syntax_valid']}")
+            print(f"Verdict:                {res['verdict']}")
+            print()
+            m = res["metrics"]
+            print("Codebase Metrics:")
+            print(f"  • Total Lines         : {m['total_lines']}")
+            print(f"  • Functions           : {m['functions']}")
+            print(f"  • Classes             : {m['classes']}")
+            print(f"  • Max Nesting Depth   : {m['max_depth']}")
+            if res["issues"]:
+                print(f"\nBlocking Issues ({len(res['issues'])}):")
+                for iss in res["issues"]:
+                    print(f"  ✗ {iss}")
+            if res["warnings"]:
+                print(f"\nQuality Warnings ({len(res['warnings'])}):")
+                for w in res["warnings"]:
+                    print(f"  ⚠ {w}")
+        else:
+            print(f"  AI DEFENSE GATE AUDIT REPORT: {res['verdict']}")
+            print("==================================================================")
+            print(f"AI Risk Probability:    {res['ai_probability']*100:.1f}%")
+            print(f"Human Probability:      {res['human_probability']*100:.1f}%")
+            print(f"Passed:                 {res['passed']}")
+            print(f"Bucket Counts:          {res['bucket_counts']}")
         print("==================================================================")
         sys.exit(0 if res["passed"] else 1)
 

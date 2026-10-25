@@ -1,6 +1,6 @@
 # ClearSet Codebase Directory Structure & Architectural Layout
 clearset_version: '1.0'
-last_updated: '2026-10-18T07:40:15.265798+00:00Z'
+last_updated: '2026-10-25T06:23:16.914105+00:00Z'
 root: '.'
 
 directories:
@@ -23,7 +23,7 @@ directories:
   skills/cs-clear:
     layer: 'general'
     tags: []
-    primary_files: ["skills/cs-clear/SKILL.md", "skills/cs-clear/README.md"]
+    primary_files: ["skills/cs-clear/README.md", "skills/cs-clear/SKILL.md"]
   skills/cs-clear/examples:
     layer: 'general'
     tags: []
